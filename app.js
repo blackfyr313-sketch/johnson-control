@@ -11,10 +11,8 @@ const defaultEmployees = [
   { id: crypto.randomUUID(), name: 'Priya Nair', employeeId: 'EMP-1005', department: 'Finance', location: 'Head Office', email: 'priya@company.com', phone: '+971500555555' }
 ];
 
-const SUPABASE_CONFIG = window.SUPABASE_CONFIG || { url: '', anonKey: '', enabled: false };
-const supabase = SUPABASE_CONFIG.enabled && SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey
-  ? window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey)
-  : null;
+const fallbackSupabaseConfig = window.SUPABASE_CONFIG || { url: '', anonKey: '', enabled: false };
+let supabase = null;
 
 const state = {
   currentMonth: new Date().getMonth(),
@@ -38,6 +36,13 @@ const calendarMonthLabel = document.getElementById('calendarMonthLabel');
 async function init() {
   bindEvents();
 
+  const runtimeConfig = await loadSupabaseConfig();
+  const config = runtimeConfig || fallbackSupabaseConfig;
+
+  if (config.enabled && config.url && config.anonKey && window.supabase) {
+    supabase = window.supabase.createClient(config.url, config.anonKey);
+  }
+
   if (supabase) {
     await loadSupabaseData();
   } else {
@@ -45,6 +50,20 @@ async function init() {
   }
 
   renderAll();
+}
+
+async function loadSupabaseConfig() {
+  try {
+    const response = await fetch('/api/config');
+    if (!response.ok) {
+      return null;
+    }
+
+    const config = await response.json();
+    return config.enabled ? config : null;
+  } catch (error) {
+    return null;
+  }
 }
 
 function bindEvents() {

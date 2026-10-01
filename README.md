@@ -23,16 +23,15 @@ This project is a simple attendance website for capturing employee login and log
 2. Open the SQL editor in Supabase.
 3. Paste the contents of `supabase-schema.sql` and run it.
 4. Go to Settings > API and copy the project URL and anon/public key.
-5. Open `config.js` and replace the placeholder values:
-   ```js
-   window.SUPABASE_CONFIG = {
-     enabled: true,
-     url: 'https://YOUR_PROJECT_REF.supabase.co',
-     anonKey: 'YOUR_SUPABASE_ANON_KEY'
-   };
-   ```
-6. Refresh the browser.
+5. In Vercel, open the project and go to Settings > Environment Variables.
+6. Add these variables:
+   - `SUPABASE_URL`
+   - `SUPABASE_ANON_KEY`
+7. Redeploy the project.
+8. Refresh the browser.
 
 ## Notes
+- The browser should never use the Supabase secret/service_role key.
+- The app reads the live config from Vercel environment variables through the `/api/config` endpoint.
 - If Supabase is not enabled, the site still works in local browser storage for quick testing.
 - The app is designed to be expanded later with more modules such as approvals, reports, and branch filters.
