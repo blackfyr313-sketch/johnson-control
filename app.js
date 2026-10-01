@@ -12,7 +12,13 @@ const state = {
   employees: [],
   locations: [],
   departments: [],
-  attendance: []
+  attendance: [],
+  editing: {
+    employeeId: null,
+    locationName: null,
+    departmentName: null,
+    attendanceKey: null
+  }
 };
 
 const employeeLocationFilter = document.getElementById('employeeLocationFilter');
@@ -435,38 +441,125 @@ function renderLocationsTable() {
   locationTableBody.innerHTML = state.locations.length
     ? state.locations.map((location) => {
       const employeeCount = state.employees.filter((employee) => employee.location === location.name).length;
+      const editing = state.editing.locationName === location.name;
       return `
-        <tr>
-          <td>${escapeHtml(location.name)}</td>
+        <tr data-location-row="${escapeHtml(location.name)}">
+          <td>${editing ? `<input class="table-input" name="locationName" value="${escapeHtml(location.name)}" maxlength="100" aria-label="Location name" />` : escapeHtml(location.name)}</td>
           <td>${employeeCount}</td>
-          <td><button class="danger-btn" data-delete-location="${escapeHtml(location.name)}" ${locationsReady ? '' : 'disabled'}>Delete</button></td>
+          <td class="row-actions">
+            ${editing
+              ? `<button class="primary-btn" data-update-location="${escapeHtml(location.name)}">Update</button><button class="secondary-btn" data-cancel-location="${escapeHtml(location.name)}">Cancel</button>`
+              : `<button class="secondary-btn" data-edit-location="${escapeHtml(location.name)}" ${locationsReady ? '' : 'disabled'}>Edit</button><button class="danger-btn" data-delete-location="${escapeHtml(location.name)}" ${locationsReady ? '' : 'disabled'}>Delete</button>`}
+          </td>
         </tr>
       `;
     }).join('')
     : '<tr><td colspan="3" class="empty-state">No locations have been added.</td></tr>';
 
+  document.querySelectorAll('[data-edit-location]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.editing.locationName = button.dataset.editLocation;
+      renderLocationsTable();
+    });
+  });
+  document.querySelectorAll('[data-update-location]').forEach((button) => {
+    button.addEventListener('click', () => updateLocation(button.dataset.updateLocation, button.closest('tr').querySelector('[name="locationName"]').value));
+  });
+  document.querySelectorAll('[data-cancel-location]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.editing.locationName = null;
+      renderLocationsTable();
+    });
+  });
   document.querySelectorAll('[data-delete-location]').forEach((button) => {
     button.addEventListener('click', () => deleteLocation(button.dataset.deleteLocation));
   });
+}
+
+async function updateLocation(previousName, inputName) {
+  if (!databaseReady || !locationsReady) return;
+  const name = inputName.trim();
+  if (!name) return;
+
+  if (name !== previousName && state.locations.some((location) => location.name.toLowerCase() === name.toLowerCase())) {
+    alert('That location already exists.');
+    return;
+  }
+
+  const { data, error } = await supabaseClient.from('locations').update({ name }).eq('name', previousName).select().single();
+  if (error) {
+    console.error(error);
+    alert('Supabase could not update this location.');
+    return;
+  }
+
+  state.locations = state.locations.map((location) => location.name === previousName ? data : location);
+  state.employees = state.employees.map((employee) => employee.location === previousName ? { ...employee, location: name } : employee);
+  state.attendance = state.attendance.map((record) => record.location === previousName ? { ...record, location: name } : record);
+  state.editing.locationName = null;
+  renderAll();
 }
 
 function renderDepartmentsTable() {
   departmentTableBody.innerHTML = state.departments.length
     ? state.departments.map((department) => {
       const employeeCount = state.employees.filter((employee) => employee.department === department.name).length;
+      const editing = state.editing.departmentName === department.name;
       return `
-        <tr>
-          <td>${escapeHtml(department.name)}</td>
+        <tr data-department-row="${escapeHtml(department.name)}">
+          <td>${editing ? `<input class="table-input" name="departmentName" value="${escapeHtml(department.name)}" maxlength="100" aria-label="Department name" />` : escapeHtml(department.name)}</td>
           <td>${employeeCount}</td>
-          <td><button class="danger-btn" data-delete-department="${escapeHtml(department.name)}" ${departmentsReady ? '' : 'disabled'}>Delete</button></td>
+          <td class="row-actions">
+            ${editing
+              ? `<button class="primary-btn" data-update-department="${escapeHtml(department.name)}">Update</button><button class="secondary-btn" data-cancel-department="${escapeHtml(department.name)}">Cancel</button>`
+              : `<button class="secondary-btn" data-edit-department="${escapeHtml(department.name)}" ${departmentsReady ? '' : 'disabled'}>Edit</button><button class="danger-btn" data-delete-department="${escapeHtml(department.name)}" ${departmentsReady ? '' : 'disabled'}>Delete</button>`}
+          </td>
         </tr>
       `;
     }).join('')
     : '<tr><td colspan="3" class="empty-state">No departments have been added.</td></tr>';
 
+  document.querySelectorAll('[data-edit-department]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.editing.departmentName = button.dataset.editDepartment;
+      renderDepartmentsTable();
+    });
+  });
+  document.querySelectorAll('[data-update-department]').forEach((button) => {
+    button.addEventListener('click', () => updateDepartment(button.dataset.updateDepartment, button.closest('tr').querySelector('[name="departmentName"]').value));
+  });
+  document.querySelectorAll('[data-cancel-department]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.editing.departmentName = null;
+      renderDepartmentsTable();
+    });
+  });
   document.querySelectorAll('[data-delete-department]').forEach((button) => {
     button.addEventListener('click', () => deleteDepartment(button.dataset.deleteDepartment));
   });
+}
+
+async function updateDepartment(previousName, inputName) {
+  if (!databaseReady || !departmentsReady) return;
+  const name = inputName.trim();
+  if (!name) return;
+
+  if (name !== previousName && state.departments.some((department) => department.name.toLowerCase() === name.toLowerCase())) {
+    alert('That department already exists.');
+    return;
+  }
+
+  const { data, error } = await supabaseClient.from('departments').update({ name }).eq('name', previousName).select().single();
+  if (error) {
+    console.error(error);
+    alert('Supabase could not update this department.');
+    return;
+  }
+
+  state.departments = state.departments.map((department) => department.name === previousName ? data : department);
+  state.employees = state.employees.map((employee) => employee.department === previousName ? { ...employee, department: name } : employee);
+  state.editing.departmentName = null;
+  renderAll();
 }
 
 async function deleteDepartment(name) {
@@ -516,25 +609,81 @@ function renderEmployeesTable() {
     : state.employees.filter((employee) => employee.location === selectedLocation);
 
   employeeTableBody.innerHTML = filteredEmployees.length
-    ? filteredEmployees.map((employee) => `
-      <tr>
-        <td>${escapeHtml(employee.name)}</td>
-        <td>${escapeHtml(employee.fatherName || '-')}</td>
-        <td>${escapeHtml(employee.employeeId)}</td>
-        <td>${escapeHtml(employee.department)}</td>
-        <td>${escapeHtml(employee.location)}</td>
-        <td>${escapeHtml(employee.email || '-')}</td>
-        <td>${escapeHtml(employee.phone || '-')}</td>
-        <td>
-          <button class="danger-btn" data-delete-employee="${employee.id}">Delete</button>
-        </td>
-      </tr>
-    `).join('')
+    ? filteredEmployees.map((employee) => {
+      const editing = state.editing.employeeId === employee.id;
+      return `
+        <tr data-employee-row="${escapeHtml(employee.id)}">
+          <td>${editing ? `<input class="table-input" name="name" value="${escapeHtml(employee.name)}" aria-label="Employee name" />` : escapeHtml(employee.name)}</td>
+          <td>${editing ? `<input class="table-input" name="fatherName" value="${escapeHtml(employee.fatherName || '')}" aria-label="Father name" />` : escapeHtml(employee.fatherName || '-')}</td>
+          <td>${editing ? `<input class="table-input" name="employeeId" value="${escapeHtml(employee.employeeId)}" aria-label="Employee ID" />` : escapeHtml(employee.employeeId)}</td>
+          <td>${editing ? renderEditSelect('department', state.departments.map((item) => item.name), employee.department) : escapeHtml(employee.department)}</td>
+          <td>${editing ? renderEditSelect('location', state.locations.map((item) => item.name), employee.location) : escapeHtml(employee.location)}</td>
+          <td>${editing ? `<input class="table-input" type="email" name="email" value="${escapeHtml(employee.email || '')}" aria-label="Email" />` : escapeHtml(employee.email || '-')}</td>
+          <td>${editing ? `<input class="table-input" type="tel" name="phone" value="${escapeHtml(employee.phone || '')}" aria-label="Phone" />` : escapeHtml(employee.phone || '-')}</td>
+          <td class="row-actions">
+            ${editing
+              ? `<button class="primary-btn" data-update-employee="${escapeHtml(employee.id)}">Update</button><button class="secondary-btn" data-cancel-employee="${escapeHtml(employee.id)}">Cancel</button>`
+              : `<button class="secondary-btn" data-edit-employee="${escapeHtml(employee.id)}">Edit</button><button class="danger-btn" data-delete-employee="${escapeHtml(employee.id)}">Delete</button>`}
+          </td>
+        </tr>
+      `;
+    }).join('')
     : '<tr><td colspan="8" class="empty-state">No employees in this location.</td></tr>';
 
+  document.querySelectorAll('[data-edit-employee]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.editing.employeeId = button.dataset.editEmployee;
+      renderEmployeesTable();
+    });
+  });
+  document.querySelectorAll('[data-update-employee]').forEach((button) => {
+    button.addEventListener('click', () => updateEmployee(button.dataset.updateEmployee, button.closest('tr')));
+  });
+  document.querySelectorAll('[data-cancel-employee]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.editing.employeeId = null;
+      renderEmployeesTable();
+    });
+  });
   document.querySelectorAll('[data-delete-employee]').forEach((button) => {
     button.addEventListener('click', () => deleteEmployee(button.dataset.deleteEmployee));
   });
+}
+
+function renderEditSelect(name, options, selected) {
+  return `<select class="table-input" name="${name}" aria-label="${name}">` +
+    options.map((option) => `<option value="${escapeHtml(option)}" ${option === selected ? 'selected' : ''}>${escapeHtml(option)}</option>`).join('') +
+    '</select>';
+}
+
+async function updateEmployee(employeeId, row) {
+  if (!databaseReady) return;
+  const fields = Object.fromEntries([...row.querySelectorAll('[name]')].map((input) => [input.name, input.value.trim()]));
+  if (!fields.name || !fields.employeeId || !fields.department || !fields.location) {
+    alert('Name, employee ID, department, and location are required.');
+    return;
+  }
+
+  const updatedEmployee = {
+    name: fields.name,
+    father_name: fields.fatherName || '',
+    employee_id: fields.employeeId,
+    department: fields.department,
+    location: fields.location,
+    email: fields.email || '',
+    phone: fields.phone || ''
+  };
+  const { data, error } = await supabaseClient.from('employees').update(updatedEmployee).eq('id', employeeId).select().single();
+  if (error) {
+    console.error(error);
+    alert(error.code === '23505' ? 'That employee ID is already in use.' : 'Supabase could not update this employee.');
+    return;
+  }
+
+  const updated = mapDbEmployeeToApp(data);
+  state.employees = state.employees.map((employee) => employee.id === employeeId ? updated : employee);
+  state.editing.employeeId = null;
+  renderAll();
 }
 
 async function deleteEmployee(employeeId) {
@@ -669,26 +818,112 @@ function renderAttendanceTable() {
 
   attendanceTableBody.innerHTML = records.map((record) => {
     const employee = getEmployeeById(record.employeeId);
+    const attendanceKey = `${record.employeeId}:${record.date}`;
+    const editing = state.editing.attendanceKey === attendanceKey;
     return `
-      <tr>
+      <tr data-attendance-row="${escapeHtml(attendanceKey)}">
         <td>${escapeHtml(employee ? employee.name : 'Unknown Employee')}</td>
         <td>${escapeHtml(employee ? employee.fatherName || '-' : '-')}</td>
         <td>${escapeHtml(employee ? employee.department : '-')}</td>
         <td>${escapeHtml(employee ? employee.location : '-')}</td>
         <td>${record.date}</td>
-        <td>${record.loginTime || '<span class="pending-time">Not recorded</span>'}</td>
-        <td>${record.logoutTime || '<span class="pending-time">Not recorded</span>'}</td>
+        <td>${editing ? `<input class="table-input time-input" type="time" name="loginTime" value="${escapeHtml(record.loginTime || '')}" aria-label="Login time" />` : record.loginTime || '<span class="pending-time">Not recorded</span>'}</td>
+        <td>${editing ? `<input class="table-input time-input" type="time" name="logoutTime" value="${escapeHtml(record.logoutTime || '')}" aria-label="Logout time" />` : record.logoutTime || '<span class="pending-time">Not recorded</span>'}</td>
         <td>${calculateWorkedDuration(record)}</td>
-        <td>
-          <button class="danger-btn" data-delete-attendance="${escapeHtml(record.employeeId)}" data-attendance-date="${escapeHtml(record.date)}">Delete</button>
+        <td class="row-actions">
+          ${editing
+            ? `<button class="primary-btn" data-update-attendance="${escapeHtml(record.employeeId)}" data-attendance-date="${escapeHtml(record.date)}">Update</button><button class="secondary-btn" data-cancel-attendance="${escapeHtml(attendanceKey)}">Cancel</button>`
+            : `<button class="secondary-btn" data-edit-attendance="${escapeHtml(attendanceKey)}">Edit</button><button class="danger-btn" data-delete-attendance="${escapeHtml(record.employeeId)}" data-attendance-date="${escapeHtml(record.date)}">Delete</button>`}
         </td>
       </tr>
     `;
   }).join('');
 
+  document.querySelectorAll('[data-edit-attendance]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.editing.attendanceKey = button.dataset.editAttendance;
+      renderAttendanceTable();
+    });
+  });
+  document.querySelectorAll('[data-update-attendance]').forEach((button) => {
+    button.addEventListener('click', () => updateAttendance(button.dataset.updateAttendance, button.dataset.attendanceDate, button.closest('tr')));
+  });
+  document.querySelectorAll('[data-cancel-attendance]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.editing.attendanceKey = null;
+      renderAttendanceTable();
+    });
+  });
   document.querySelectorAll('[data-delete-attendance]').forEach((button) => {
     button.addEventListener('click', () => deleteAttendance(button.dataset.deleteAttendance, button.dataset.attendanceDate));
   });
+}
+
+async function updateAttendance(employeeId, date, row) {
+  if (!databaseReady) return;
+  const loginTime = row.querySelector('[name="loginTime"]').value;
+  const logoutTime = row.querySelector('[name="logoutTime"]').value;
+  let record = state.attendance.find((entry) => entry.employeeId === employeeId && entry.date === date);
+  if (!record) return;
+
+  if (splitAttendanceReady) {
+    const loginResult = await updateAttendanceEvent(employeeId, date, 'login', loginTime, record);
+    if (loginResult.error) return showAttendanceUpdateError(loginResult.error);
+    const logoutResult = await updateAttendanceEvent(employeeId, date, 'logout', logoutTime, record);
+    if (logoutResult.error) {
+      await reloadAttendanceAfterPartialUpdate();
+      return showAttendanceUpdateError(logoutResult.error);
+    }
+    record.loginId = loginResult.data?.id || null;
+    record.loginTime = loginResult.data?.login_time ? normalizeTime(loginResult.data.login_time) : '';
+    record.logoutId = logoutResult.data?.id || null;
+    record.logoutTime = logoutResult.data?.logout_time ? normalizeTime(logoutResult.data.logout_time) : '';
+  } else {
+    const request = !loginTime && !logoutTime
+      ? supabaseClient.from('attendance').delete().eq('employee_id', employeeId).eq('date', date)
+      : supabaseClient.from('attendance').update({ login_time: loginTime, logout_time: logoutTime }).eq('employee_id', employeeId).eq('date', date);
+    const { error } = await request;
+    if (error) return showAttendanceUpdateError(error);
+    record.loginTime = loginTime;
+    record.logoutTime = logoutTime;
+  }
+
+  if (!record.loginTime && !record.logoutTime) {
+    state.attendance = state.attendance.filter((entry) => !(entry.employeeId === employeeId && entry.date === date));
+  }
+  state.editing.attendanceKey = null;
+  renderAll();
+}
+
+async function updateAttendanceEvent(employeeId, date, eventType, time, record) {
+  const isLogin = eventType === 'login';
+  const table = isLogin ? 'attendance_logins' : 'attendance_logouts';
+  const timeColumn = isLogin ? 'login_time' : 'logout_time';
+  if (!time) {
+    const { error } = await supabaseClient.from(table).delete().eq('employee_id', employeeId).eq('date', date);
+    return { data: null, error };
+  }
+
+  const { data, error } = await supabaseClient.from(table).upsert([{
+    id: isLogin ? record.loginId || crypto.randomUUID() : record.logoutId || crypto.randomUUID(),
+    employee_id: employeeId,
+    date,
+    [timeColumn]: time,
+    location: getEmployeeById(employeeId)?.location || record.location || ''
+  }], { onConflict: 'employee_id,date' }).select().single();
+  return { data, error };
+}
+
+async function reloadAttendanceAfterPartialUpdate() {
+  const { data: loginRows } = await supabaseClient.from('attendance_logins').select('*').order('date', { ascending: true });
+  const { data: logoutRows } = await supabaseClient.from('attendance_logouts').select('*').order('date', { ascending: true });
+  state.attendance = mergeAttendanceEvents(loginRows || [], logoutRows || []);
+  renderAll();
+}
+
+function showAttendanceUpdateError(error) {
+  console.error(error);
+  alert('Supabase could not update this attendance record.');
 }
 
 async function deleteAttendance(employeeId, date) {
