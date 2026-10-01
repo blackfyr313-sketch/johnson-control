@@ -24,18 +24,20 @@ A static server such as `python -m http.server` can display the page, but it can
 ## Supabase setup
 1. Create a new Supabase project.
 2. Open the SQL editor in Supabase.
-3. Paste the contents of `supabase-schema.sql` and run it.
-4. Go to Settings > API and copy the project URL and anon/public key.
-5. In Vercel, open the project and go to Settings > Environment Variables.
-6. Add these variables:
+3. For a new project, paste and run `supabase-schema.sql`.
+4. For an existing project, run `supabase-location-migration.sql` to create the locations table, backfill current employee locations, and link employees to locations. Do not rerun the original schema just for this update.
+5. Go to Settings > API and copy the project URL and anon/public key.
+6. In Vercel, open the project and go to Settings > Environment Variables.
+7. Add these variables:
    - `SUPABASE_URL`
    - `SUPABASE_ANON_KEY`
-7. Redeploy the project.
-8. Refresh the browser.
+8. Redeploy the project.
+9. Refresh the browser.
 
 ## Notes
 - The browser should never use the Supabase secret/service_role key.
 - The app reads the live config from Vercel environment variables through the `/api/config` endpoint.
 - Supabase is required to load and save employee and attendance data. If the database is unavailable, the app shows a status message and disables saving.
 - The app does not create sample employees. Add real employees through the Employees form and they will be saved to Supabase.
+- Add locations in the Locations tab before assigning employees to them.
 - The app is designed to be expanded later with more modules such as approvals, reports, and branch filters.

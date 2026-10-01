@@ -20,6 +20,7 @@
         <nav class="nav">
           <button class="nav-btn active" data-section="dashboard">Dashboard</button>
           <button class="nav-btn" data-section="employees">Employees</button>
+          <button class="nav-btn" data-section="locations">Locations</button>
           <button class="nav-btn" data-section="attendance">Attendance</button>
         </nav>
       </aside>
@@ -94,11 +95,6 @@
                 <label for="location">Location</label>
                 <select id="location" name="location" required>
                   <option value="">Select location</option>
-                  <option value="Head Office">Head Office</option>
-                  <option value="Factory A">Factory A</option>
-                  <option value="Factory B">Factory B</option>
-                  <option value="Field Team">Field Team</option>
-                  <option value="Warehouse">Warehouse</option>
                 </select>
               </div>
 
@@ -143,6 +139,49 @@
                   </tr>
                 </thead>
                 <tbody id="employeeTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section id="locations" class="panel">
+          <div class="topbar">
+            <div>
+              <p class="eyebrow">Database</p>
+              <h2>Location management</h2>
+            </div>
+          </div>
+
+          <div class="card form-card">
+            <div class="card-header">
+              <h3>Add location</h3>
+            </div>
+            <form id="locationForm" class="grid-form">
+              <div class="field">
+                <label for="locationName">Location name</label>
+                <input id="locationName" name="locationName" type="text" maxlength="100" required />
+              </div>
+              <div class="form-actions">
+                <button type="submit" class="primary-btn">Save location</button>
+                <button type="reset" class="secondary-btn">Clear</button>
+              </div>
+            </form>
+          </div>
+
+          <div class="card table-card">
+            <div class="card-header">
+              <h3>All locations</h3>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Location</th>
+                    <th>Employees</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="locationTableBody"></tbody>
               </table>
             </div>
           </div>

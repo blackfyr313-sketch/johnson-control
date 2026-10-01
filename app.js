@@ -1,19 +1,24 @@
 let supabaseClient = null;
 let databaseReady = false;
+let locationsReady = false;
 
 const state = {
   currentMonth: new Date().getMonth(),
   currentYear: new Date().getFullYear(),
   selectedDate: formatDateISO(new Date()),
   employees: [],
+  locations: [],
   attendance: []
 };
 
 const employeeLocationFilter = document.getElementById('employeeLocationFilter');
+const employeeLocationSelect = document.getElementById('location');
 const attendanceLocationSelect = document.getElementById('attendanceLocationSelect');
 const employeeTableBody = document.getElementById('employeeTableBody');
+const locationTableBody = document.getElementById('locationTableBody');
 const attendanceTableBody = document.getElementById('attendanceTableBody');
 const employeeForm = document.getElementById('employeeForm');
+const locationForm = document.getElementById('locationForm');
 const attendanceForm = document.getElementById('attendanceForm');
 const attendanceEmployee = document.getElementById('attendanceEmployee');
 const attendanceDate = document.getElementById('attendanceDate');
@@ -27,11 +32,16 @@ async function init() {
   const runtimeConfig = await loadSupabaseConfig();
   if (runtimeConfig?.enabled && runtimeConfig.url && runtimeConfig.anonKey && window.supabase) {
     supabaseClient = window.supabase.createClient(runtimeConfig.url, runtimeConfig.anonKey);
-    databaseReady = await loadSupabaseData();
-    setDatabaseStatus(
-      databaseReady ? 'Connected to Supabase.' : 'Could not load database data. Check the Supabase tables and policies.',
-      databaseReady ? 'connected' : 'error'
-    );
+    const loadResult = await loadSupabaseData();
+    databaseReady = loadResult.connected;
+    locationsReady = loadResult.locationsReady;
+    if (!databaseReady) {
+      setDatabaseStatus('Could not load employee or attendance data. Check the Supabase tables and policies.', 'error');
+    } else if (!locationsReady) {
+      setDatabaseStatus('Connected to Supabase. Run supabase-location-migration.sql to enable location management.', 'warning');
+    } else {
+      setDatabaseStatus('Connected to Supabase.', 'connected');
+    }
   } else {
     state.employees = [];
     state.attendance = [];
@@ -58,8 +68,6 @@ async function loadSupabaseConfig() {
 function setDatabaseStatus(message, status) {
   databaseStatus.textContent = message;
   databaseStatus.className = `database-status ${status}`;
-  employeeForm.querySelector('[type="submit"]').disabled = !databaseReady;
-  attendanceForm.querySelector('[type="submit"]').disabled = !databaseReady;
 }
 
 function bindEvents() {
@@ -75,7 +83,7 @@ function bindEvents() {
 
   employeeForm.addEventListener('submit', async (event) => {
     event.preventDefault();
-    if (!databaseReady) return;
+    if (!databaseReady || !state.locations.length) return;
 
     const form = event.currentTarget;
     const newEmployee = {
@@ -103,6 +111,25 @@ function bindEvents() {
 
     renderAll();
     form.reset();
+  });
+
+  locationForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!databaseReady || !locationsReady) return;
+
+    const name = locationForm.locationName.value.trim();
+    if (!name) return;
+
+    const { data, error } = await supabaseClient.from('locations').insert([{ name }]).select().single();
+    if (error) {
+      alert(error.code === '23505' ? 'That location already exists.' : 'Supabase could not save this location.');
+      console.error(error);
+      return;
+    }
+
+    state.locations.push(data);
+    renderAll();
+    locationForm.reset();
   });
 
   employeeLocationFilter.addEventListener('change', renderEmployeesTable);
@@ -174,7 +201,10 @@ function bindEvents() {
 }
 
 async function loadSupabaseData() {
-  const [{ data: employeeRows, error: employeeError }, { data: attendanceRows, error: attendanceError }] = await Promise.all([
+  const [
+    { data: employeeRows, error: employeeError },
+    { data: attendanceRows, error: attendanceError }
+  ] = await Promise.all([
     supabaseClient.from('employees').select('*').order('created_at', { ascending: true }),
     supabaseClient.from('attendance').select('*').order('date', { ascending: true })
   ]);
@@ -183,16 +213,30 @@ async function loadSupabaseData() {
     console.error(employeeError || attendanceError);
     state.employees = [];
     state.attendance = [];
-    return false;
+    state.locations = [];
+    return { connected: false, locationsReady: false };
   }
 
   state.employees = (employeeRows || []).map(mapDbEmployeeToApp);
   state.attendance = (attendanceRows || []).map(mapDbAttendanceToApp);
-  return true;
+
+  const { data: locationRows, error: locationError } = await supabaseClient.from('locations').select('*').order('name', { ascending: true });
+  if (locationError) {
+    console.warn('Location table is unavailable. Run the supplied location migration.', locationError);
+    state.locations = [...new Set(state.employees.map((employee) => employee.location))].map((name) => ({ name }));
+    return { connected: true, locationsReady: false };
+  }
+
+  state.locations = locationRows || [];
+  return { connected: true, locationsReady: true };
 }
 
 function renderAll() {
+  employeeForm.querySelector('[type="submit"]').disabled = !databaseReady || !state.locations.length;
+  locationForm.querySelector('[type="submit"]').disabled = !databaseReady || !locationsReady;
+  attendanceForm.querySelector('[type="submit"]').disabled = !databaseReady;
   renderDashboard();
+  renderLocationsTable();
   renderLocationFilters();
   renderEmployeesTable();
   renderCalendar();
@@ -201,7 +245,7 @@ function renderAll() {
 
 function renderDashboard() {
   const employees = state.employees;
-  const totalLocations = [...new Set(employees.map((employee) => employee.location))].length;
+  const totalLocations = state.locations.length;
   const today = formatDateISO(new Date());
   const loggedInToday = state.attendance.filter((record) => record.date === today).length;
   const loggedOutToday = state.attendance.filter((record) => record.date === today && record.logoutTime).length;
@@ -211,18 +255,16 @@ function renderDashboard() {
   document.getElementById('loggedInToday').textContent = loggedInToday;
   document.getElementById('loggedOutToday').textContent = loggedOutToday;
 
-  const summary = Object.entries(
-    state.employees.reduce((acc, employee) => {
-      acc[employee.location] = (acc[employee.location] || 0) + 1;
-      return acc;
-    }, {})
-  );
+  const summary = state.locations.map((location) => [
+    location.name,
+    employees.filter((employee) => employee.location === location.name).length
+  ]);
 
   const container = document.getElementById('locationSummary');
   container.innerHTML = summary.length
     ? summary.map(([location, count]) => `
       <div class="location-item">
-        <strong>${location}</strong>
+        <strong>${escapeHtml(location)}</strong>
         <span>${count} employees</span>
       </div>
     `).join('')
@@ -230,18 +272,64 @@ function renderDashboard() {
 }
 
 function renderLocationFilters() {
-  const locations = [...new Set(state.employees.map((employee) => employee.location))].sort();
+  const locations = state.locations.map((location) => location.name).sort();
+  const selectedEmployeeLocation = employeeLocationSelect.value;
+  const selectedEmployeeFilter = employeeLocationFilter.value;
+  const selectedAttendanceLocation = attendanceLocationSelect.value;
+
+  employeeLocationSelect.innerHTML = '<option value="">Select location</option>' +
+    locations.map((location) => `<option value="${escapeHtml(location)}">${escapeHtml(location)}</option>`).join('');
+  employeeLocationSelect.value = locations.includes(selectedEmployeeLocation) ? selectedEmployeeLocation : '';
 
   employeeLocationFilter.innerHTML = '<option value="all">All locations</option>' +
-    locations.map((location) => `<option value="${location}">${location}</option>`).join('');
+    locations.map((location) => `<option value="${escapeHtml(location)}">${escapeHtml(location)}</option>`).join('');
+  employeeLocationFilter.value = locations.includes(selectedEmployeeFilter) ? selectedEmployeeFilter : 'all';
 
   attendanceLocationSelect.innerHTML = '<option value="">Select location</option>' +
-    locations.map((location) => `<option value="${location}">${location}</option>`).join('');
-
-  const currentLocation = attendanceLocationSelect.dataset.location || '';
-  attendanceLocationSelect.value = currentLocation;
+    locations.map((location) => `<option value="${escapeHtml(location)}">${escapeHtml(location)}</option>`).join('');
+  attendanceLocationSelect.value = locations.includes(selectedAttendanceLocation) ? selectedAttendanceLocation : '';
 
   updateAttendanceEmployees();
+}
+
+function renderLocationsTable() {
+  locationTableBody.innerHTML = state.locations.length
+    ? state.locations.map((location) => {
+      const employeeCount = state.employees.filter((employee) => employee.location === location.name).length;
+      return `
+        <tr>
+          <td>${escapeHtml(location.name)}</td>
+          <td>${employeeCount}</td>
+          <td><button class="danger-btn" data-delete-location="${escapeHtml(location.name)}" ${locationsReady ? '' : 'disabled'}>Delete</button></td>
+        </tr>
+      `;
+    }).join('')
+    : '<tr><td colspan="3" class="empty-state">No locations have been added.</td></tr>';
+
+  document.querySelectorAll('[data-delete-location]').forEach((button) => {
+    button.addEventListener('click', () => deleteLocation(button.dataset.deleteLocation));
+  });
+}
+
+async function deleteLocation(name) {
+  if (!databaseReady || !locationsReady) return;
+  if (state.employees.some((employee) => employee.location === name)) {
+    alert('This location is assigned to employees. Reassign or remove them first.');
+    return;
+  }
+
+  const confirmed = confirm(`Delete location ${name}?`);
+  if (!confirmed) return;
+
+  const { error } = await supabaseClient.from('locations').delete().eq('name', name);
+  if (error) {
+    console.error(error);
+    alert('Supabase could not delete this location.');
+    return;
+  }
+
+  state.locations = state.locations.filter((location) => location.name !== name);
+  renderAll();
 }
 
 function renderEmployeesTable() {
@@ -253,12 +341,12 @@ function renderEmployeesTable() {
   employeeTableBody.innerHTML = filteredEmployees.length
     ? filteredEmployees.map((employee) => `
       <tr>
-        <td>${employee.name}</td>
-        <td>${employee.employeeId}</td>
-        <td>${employee.department}</td>
-        <td>${employee.location}</td>
-        <td>${employee.email || '-'}</td>
-        <td>${employee.phone || '-'}</td>
+        <td>${escapeHtml(employee.name)}</td>
+        <td>${escapeHtml(employee.employeeId)}</td>
+        <td>${escapeHtml(employee.department)}</td>
+        <td>${escapeHtml(employee.location)}</td>
+        <td>${escapeHtml(employee.email || '-')}</td>
+        <td>${escapeHtml(employee.phone || '-')}</td>
         <td>
           <button class="danger-btn" data-delete-employee="${employee.id}">Delete</button>
         </td>
@@ -298,7 +386,7 @@ function updateAttendanceEmployees() {
   const location = attendanceLocationSelect.value;
   const employeesInLocation = state.employees.filter((employee) => !location || employee.location === location);
   attendanceEmployee.innerHTML = '<option value="">Select employee</option>' +
-    employeesInLocation.map((employee) => `<option value="${employee.id}">${employee.name} (${employee.employeeId})</option>`).join('');
+    employeesInLocation.map((employee) => `<option value="${escapeHtml(employee.id)}">${escapeHtml(employee.name)} (${escapeHtml(employee.employeeId)})</option>`).join('');
 
   const selected = attendanceEmployee.dataset.employeeId;
   if (selected) {
@@ -403,8 +491,8 @@ function renderAttendanceTable() {
     const employee = getEmployeeById(record.employeeId);
     return `
       <tr>
-        <td>${employee ? employee.name : 'Unknown Employee'}</td>
-        <td>${employee ? employee.location : '-'}</td>
+        <td>${escapeHtml(employee ? employee.name : 'Unknown Employee')}</td>
+        <td>${escapeHtml(employee ? employee.location : '-')}</td>
         <td>${record.date}</td>
         <td>${record.loginTime}</td>
         <td>${record.logoutTime}</td>
@@ -436,6 +524,16 @@ async function deleteAttendance(attendanceId) {
 
 function getEmployeeById(employeeId) {
   return state.employees.find((employee) => employee.id === employeeId);
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  })[character]);
 }
 
 function mapDbEmployeeToApp(row) {
