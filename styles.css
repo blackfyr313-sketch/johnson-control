@@ -192,6 +192,12 @@ h3 {
 .summary-card.green strong { color: var(--green); }
 .summary-card.orange strong { color: var(--orange); }
 
+.dashboard-filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .dashboard-date-control {
   display: flex;
   align-items: center;
@@ -200,7 +206,8 @@ h3 {
   font-size: 0.9rem;
 }
 
-.dashboard-date-control input {
+.dashboard-date-control input,
+.dashboard-date-control select {
   min-height: 42px;
   padding: 8px 10px;
   border: 1px solid var(--border);
@@ -648,7 +655,14 @@ tbody tr:hover {
     justify-content: space-between;
   }
 
-  .dashboard-date-control input {
+  .dashboard-filters {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .dashboard-date-control input,
+  .dashboard-date-control select {
     width: min(62%, 220px);
   }
 

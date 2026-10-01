@@ -9,6 +9,7 @@ const state = {
   currentYear: new Date().getFullYear(),
   selectedDate: formatDateISO(new Date()),
   dashboardDate: formatDateISO(new Date()),
+  dashboardDepartment: 'all',
   employees: [],
   locations: [],
   departments: [],
@@ -40,6 +41,7 @@ const calendar = document.getElementById('calendar');
 const calendarMonthLabel = document.getElementById('calendarMonthLabel');
 const databaseStatus = document.getElementById('databaseStatus');
 const dashboardDate = document.getElementById('dashboardDate');
+const dashboardDepartmentFilter = document.getElementById('dashboardDepartmentFilter');
 
 async function init() {
   bindEvents();
@@ -188,6 +190,10 @@ function bindEvents() {
     state.dashboardDate = event.target.value || formatDateISO(new Date());
     renderDashboard();
   });
+  dashboardDepartmentFilter.addEventListener('change', (event) => {
+    state.dashboardDepartment = event.target.value || 'all';
+    renderDashboard();
+  });
 
   loginForm.addEventListener('submit', (event) => saveAttendanceEvent(event, 'login'));
   logoutForm.addEventListener('submit', (event) => saveAttendanceEvent(event, 'logout'));
@@ -331,9 +337,21 @@ function renderAll() {
 }
 
 function renderDashboard() {
-  const employees = state.employees;
+  const selectedDepartment = state.dashboardDepartment;
+  const selectedDepartmentName = state.departments.some((department) => department.name === selectedDepartment)
+    ? selectedDepartment
+    : 'all';
+  const departments = state.departments.map((department) => department.name).sort();
+  dashboardDepartmentFilter.innerHTML = '<option value="all">All departments</option>' +
+    departments.map((department) => `<option value="${escapeHtml(department)}">${escapeHtml(department)}</option>`).join('');
+  dashboardDepartmentFilter.value = selectedDepartmentName;
+
+  const employees = selectedDepartmentName === 'all'
+    ? state.employees
+    : state.employees.filter((employee) => employee.department === selectedDepartmentName);
   const reportDate = state.dashboardDate;
-  const dayRecords = state.attendance.filter((record) => record.date === reportDate);
+  const employeeIds = new Set(employees.map((employee) => employee.id));
+  const dayRecords = state.attendance.filter((record) => record.date === reportDate && employeeIds.has(record.employeeId));
   const recordByEmployee = new Map(dayRecords.map((record) => [record.employeeId, record]));
   const loggedInToday = dayRecords.filter((record) => record.loginTime).length;
   const loggedOutToday = dayRecords.filter((record) => record.logoutTime).length;
@@ -385,7 +403,9 @@ function renderDashboard() {
     }).join('')
     : '<tr><td colspan="3" class="empty-state">No departments configured.</td></tr>';
 
-  document.getElementById('dashboardAttendanceCaption').textContent = formatDisplayDate(reportDate);
+  document.getElementById('dashboardAttendanceCaption').textContent = selectedDepartmentName === 'all'
+    ? formatDisplayDate(reportDate)
+    : `${formatDisplayDate(reportDate)} · ${selectedDepartmentName}`;
   document.getElementById('dashboardAttendanceBody').innerHTML = employees.length
     ? employees.map((employee) => {
       const record = recordByEmployee.get(employee.id);
