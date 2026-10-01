@@ -7,16 +7,19 @@ This project is a simple attendance website for capturing employee login and log
 - Location-based filtering
 - Daily attendance capture by date
 - Calendar view for attendance tracking
-- Supabase-ready storage
+- Supabase database storage for employees and attendance
 
-## Local preview
+## Local development
 1. Open the project folder in VS Code.
-2. Run a static server:
+2. Run the project with Vercel CLI so the `/api/config` endpoint is available:
    ```bash
-   cd d:\SF
-   py -3 -m http.server 8000
+   cd d:\SF\johnson-control
+   vercel link
+   vercel dev
    ```
-3. Open `http://localhost:8000` in the browser.
+3. Open the local URL printed by `vercel dev`. The linked Vercel project supplies its configured environment variables.
+
+A static server such as `python -m http.server` can display the page, but it cannot run the Vercel API endpoint; database saves will be disabled in that preview.
 
 ## Supabase setup
 1. Create a new Supabase project.
@@ -33,5 +36,6 @@ This project is a simple attendance website for capturing employee login and log
 ## Notes
 - The browser should never use the Supabase secret/service_role key.
 - The app reads the live config from Vercel environment variables through the `/api/config` endpoint.
-- If Supabase is not enabled, the site still works in local browser storage for quick testing.
+- Supabase is required to load and save employee and attendance data. If the database is unavailable, the app shows a status message and disables saving.
+- The app does not create sample employees. Add real employees through the Employees form and they will be saved to Supabase.
 - The app is designed to be expanded later with more modules such as approvals, reports, and branch filters.

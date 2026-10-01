@@ -1,18 +1,5 @@
-const STORAGE_KEYS = {
-  employees: 'attendance-employees',
-  attendance: 'attendance-records'
-};
-
-const defaultEmployees = [
-  { id: crypto.randomUUID(), name: 'Aisha Khan', employeeId: 'EMP-1001', department: 'HR', location: 'Head Office', email: 'aisha@company.com', phone: '+971500111111' },
-  { id: crypto.randomUUID(), name: 'Daniel Smith', employeeId: 'EMP-1002', department: 'Operations', location: 'Factory A', email: 'daniel@company.com', phone: '+971500222222' },
-  { id: crypto.randomUUID(), name: 'Lina Hasan', employeeId: 'EMP-1003', department: 'Logistics', location: 'Warehouse', email: 'lina@company.com', phone: '+971500333333' },
-  { id: crypto.randomUUID(), name: 'Omar Ali', employeeId: 'EMP-1004', department: 'Sales', location: 'Field Team', email: 'omar@company.com', phone: '+971500444444' },
-  { id: crypto.randomUUID(), name: 'Priya Nair', employeeId: 'EMP-1005', department: 'Finance', location: 'Head Office', email: 'priya@company.com', phone: '+971500555555' }
-];
-
-const fallbackSupabaseConfig = window.SUPABASE_CONFIG || { url: '', anonKey: '', enabled: false };
-let supabase = null;
+let supabaseClient = null;
+let databaseReady = false;
 
 const state = {
   currentMonth: new Date().getMonth(),
@@ -32,21 +19,23 @@ const attendanceEmployee = document.getElementById('attendanceEmployee');
 const attendanceDate = document.getElementById('attendanceDate');
 const calendar = document.getElementById('calendar');
 const calendarMonthLabel = document.getElementById('calendarMonthLabel');
+const databaseStatus = document.getElementById('databaseStatus');
 
 async function init() {
   bindEvents();
 
   const runtimeConfig = await loadSupabaseConfig();
-  const config = runtimeConfig || fallbackSupabaseConfig;
-
-  if (config.enabled && config.url && config.anonKey && window.supabase) {
-    supabase = window.supabase.createClient(config.url, config.anonKey);
-  }
-
-  if (supabase) {
-    await loadSupabaseData();
+  if (runtimeConfig?.enabled && runtimeConfig.url && runtimeConfig.anonKey && window.supabase) {
+    supabaseClient = window.supabase.createClient(runtimeConfig.url, runtimeConfig.anonKey);
+    databaseReady = await loadSupabaseData();
+    setDatabaseStatus(
+      databaseReady ? 'Connected to Supabase.' : 'Could not load database data. Check the Supabase tables and policies.',
+      databaseReady ? 'connected' : 'error'
+    );
   } else {
-    loadLocalData();
+    state.employees = [];
+    state.attendance = [];
+    setDatabaseStatus('Supabase is unavailable here. Open the deployed Vercel site or run this project with Vercel CLI.', 'error');
   }
 
   renderAll();
@@ -66,6 +55,13 @@ async function loadSupabaseConfig() {
   }
 }
 
+function setDatabaseStatus(message, status) {
+  databaseStatus.textContent = message;
+  databaseStatus.className = `database-status ${status}`;
+  employeeForm.querySelector('[type="submit"]').disabled = !databaseReady;
+  attendanceForm.querySelector('[type="submit"]').disabled = !databaseReady;
+}
+
 function bindEvents() {
   document.querySelectorAll('.nav-btn').forEach((button) => {
     button.addEventListener('click', () => {
@@ -79,6 +75,8 @@ function bindEvents() {
 
   employeeForm.addEventListener('submit', async (event) => {
     event.preventDefault();
+    if (!databaseReady) return;
+
     const form = event.currentTarget;
     const newEmployee = {
       id: crypto.randomUUID(),
@@ -95,18 +93,13 @@ function bindEvents() {
       return;
     }
 
-    if (supabase) {
-      const { data, error } = await supabase.from('employees').insert([toDbEmployee(newEmployee)]).select();
-      if (error) {
-        alert('Supabase employee save failed. Check your table setup.');
-        console.error(error);
-        return;
-      }
-      state.employees.push(mapDbEmployeeToApp(data[0]));
-    } else {
-      state.employees.push(newEmployee);
-      saveLocalData();
+    const { data, error } = await supabaseClient.from('employees').insert([toDbEmployee(newEmployee)]).select();
+    if (error) {
+      alert('Supabase employee save failed. Check your table setup.');
+      console.error(error);
+      return;
     }
+    state.employees.push(mapDbEmployeeToApp(data[0]));
 
     renderAll();
     form.reset();
@@ -114,6 +107,7 @@ function bindEvents() {
 
   employeeLocationFilter.addEventListener('change', renderEmployeesTable);
   attendanceLocationSelect.addEventListener('change', updateAttendanceEmployees);
+  attendanceEmployee.addEventListener('change', updateAttendanceInputs);
   attendanceDate.addEventListener('change', (event) => {
     state.selectedDate = event.target.value;
     updateAttendanceInputs();
@@ -121,6 +115,8 @@ function bindEvents() {
 
   attendanceForm.addEventListener('submit', async (event) => {
     event.preventDefault();
+    if (!databaseReady) return;
+
     const selectedEmployeeId = attendanceEmployee.value;
     const date = attendanceDate.value;
     const loginTime = document.getElementById('loginTime').value;
@@ -141,27 +137,18 @@ function bindEvents() {
       location: getEmployeeById(selectedEmployeeId)?.location || ''
     };
 
-    if (supabase) {
-      const { error } = await supabase.from('attendance').upsert([toDbAttendance(attendanceEntry)], { onConflict: 'id' });
-      if (error) {
-        alert('Supabase attendance save failed. Check your table setup.');
-        console.error(error);
-        return;
-      }
+    const { error } = await supabaseClient.from('attendance').upsert([toDbAttendance(attendanceEntry)], { onConflict: 'id' });
+    if (error) {
+      alert('Supabase attendance save failed. Check your table setup.');
+      console.error(error);
+      return;
+    }
 
-      const existingIndex = state.attendance.findIndex((entry) => entry.id === attendanceEntry.id);
-      if (existingIndex >= 0) {
-        state.attendance[existingIndex] = attendanceEntry;
-      } else {
-        state.attendance.push(attendanceEntry);
-      }
+    const existingIndex = state.attendance.findIndex((entry) => entry.id === attendanceEntry.id);
+    if (existingIndex >= 0) {
+      state.attendance[existingIndex] = attendanceEntry;
     } else {
-      if (recordIndex >= 0) {
-        state.attendance[recordIndex] = attendanceEntry;
-      } else {
-        state.attendance.push(attendanceEntry);
-      }
-      saveLocalData();
+      state.attendance.push(attendanceEntry);
     }
 
     renderAll();
@@ -186,49 +173,22 @@ function bindEvents() {
   });
 }
 
-function loadLocalData() {
-  const savedEmployees = JSON.parse(localStorage.getItem(STORAGE_KEYS.employees) || 'null');
-  const savedAttendance = JSON.parse(localStorage.getItem(STORAGE_KEYS.attendance) || 'null');
-
-  state.employees = savedEmployees && savedEmployees.length ? savedEmployees : defaultEmployees;
-  state.attendance = savedAttendance || [];
-
-  if (!localStorage.getItem(STORAGE_KEYS.employees)) {
-    saveLocalData();
-  }
-}
-
 async function loadSupabaseData() {
   const [{ data: employeeRows, error: employeeError }, { data: attendanceRows, error: attendanceError }] = await Promise.all([
-    supabase.from('employees').select('*').order('created_at', { ascending: true }),
-    supabase.from('attendance').select('*').order('date', { ascending: true })
+    supabaseClient.from('employees').select('*').order('created_at', { ascending: true }),
+    supabaseClient.from('attendance').select('*').order('date', { ascending: true })
   ]);
 
   if (employeeError || attendanceError) {
     console.error(employeeError || attendanceError);
-    alert('Supabase connection failed. Please confirm your table names and project setup.');
-    state.employees = defaultEmployees;
+    state.employees = [];
     state.attendance = [];
-    return;
+    return false;
   }
 
   state.employees = (employeeRows || []).map(mapDbEmployeeToApp);
   state.attendance = (attendanceRows || []).map(mapDbAttendanceToApp);
-
-  if (!state.employees.length) {
-    const seededEmployees = defaultEmployees.map((employee) => ({
-      ...employee,
-      id: crypto.randomUUID()
-    }));
-
-    const { data: insertedEmployees } = await supabase.from('employees').insert(seededEmployees.map(toDbEmployee)).select();
-    state.employees = (insertedEmployees || seededEmployees).map((employee) => mapDbEmployeeToApp(employee));
-  }
-}
-
-function saveLocalData() {
-  localStorage.setItem(STORAGE_KEYS.employees, JSON.stringify(state.employees));
-  localStorage.setItem(STORAGE_KEYS.attendance, JSON.stringify(state.attendance));
+  return true;
 }
 
 function renderAll() {
@@ -312,26 +272,25 @@ function renderEmployeesTable() {
 }
 
 async function deleteEmployee(employeeId) {
+  if (!databaseReady) return;
+
   const employee = getEmployeeById(employeeId);
   const confirmed = confirm(`Delete employee ${employee?.name || 'record'}?`);
   if (!confirmed) return;
 
-  if (supabase) {
-    const [{ error: attendanceError }, { error: employeeError }] = await Promise.all([
-      supabase.from('attendance').delete().eq('employee_id', employeeId),
-      supabase.from('employees').delete().eq('id', employeeId)
-    ]);
+  const [{ error: attendanceError }, { error: employeeError }] = await Promise.all([
+    supabaseClient.from('attendance').delete().eq('employee_id', employeeId),
+    supabaseClient.from('employees').delete().eq('id', employeeId)
+  ]);
 
-    if (attendanceError || employeeError) {
-      console.error(attendanceError || employeeError);
-      alert('Deletion failed in Supabase.');
-      return;
-    }
+  if (attendanceError || employeeError) {
+    console.error(attendanceError || employeeError);
+    alert('Deletion failed in Supabase.');
+    return;
   }
 
   state.employees = state.employees.filter((employee) => employee.id !== employeeId);
   state.attendance = state.attendance.filter((record) => record.employeeId !== employeeId);
-  if (!supabase) saveLocalData();
   renderAll();
 }
 
@@ -462,17 +421,16 @@ function renderAttendanceTable() {
 }
 
 async function deleteAttendance(attendanceId) {
-  if (supabase) {
-    const { error } = await supabase.from('attendance').delete().eq('id', attendanceId);
-    if (error) {
-      console.error(error);
-      alert('Supabase attendance deletion failed.');
-      return;
-    }
+  if (!databaseReady) return;
+
+  const { error } = await supabaseClient.from('attendance').delete().eq('id', attendanceId);
+  if (error) {
+    console.error(error);
+    alert('Supabase attendance deletion failed.');
+    return;
   }
 
   state.attendance = state.attendance.filter((entry) => entry.id !== attendanceId);
-  if (!supabase) saveLocalData();
   renderAll();
 }
 
