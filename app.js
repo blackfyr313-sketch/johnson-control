@@ -8,6 +8,7 @@ const state = {
   currentMonth: new Date().getMonth(),
   currentYear: new Date().getFullYear(),
   selectedDate: formatDateISO(new Date()),
+  dashboardDate: formatDateISO(new Date()),
   employees: [],
   locations: [],
   departments: [],
@@ -32,6 +33,7 @@ const attendanceDate = document.getElementById('attendanceDate');
 const calendar = document.getElementById('calendar');
 const calendarMonthLabel = document.getElementById('calendarMonthLabel');
 const databaseStatus = document.getElementById('databaseStatus');
+const dashboardDate = document.getElementById('dashboardDate');
 
 async function init() {
   bindEvents();
@@ -175,6 +177,10 @@ function bindEvents() {
   attendanceDate.addEventListener('change', (event) => {
     state.selectedDate = event.target.value;
     updateAttendanceInputs();
+  });
+  dashboardDate.addEventListener('change', (event) => {
+    state.dashboardDate = event.target.value || formatDateISO(new Date());
+    renderDashboard();
   });
 
   loginForm.addEventListener('submit', (event) => saveAttendanceEvent(event, 'login'));
@@ -320,30 +326,82 @@ function renderAll() {
 
 function renderDashboard() {
   const employees = state.employees;
-  const totalLocations = state.locations.length;
-  const today = formatDateISO(new Date());
-  const loggedInToday = state.attendance.filter((record) => record.date === today && record.loginTime).length;
-  const loggedOutToday = state.attendance.filter((record) => record.date === today && record.logoutTime).length;
+  const reportDate = state.dashboardDate;
+  const dayRecords = state.attendance.filter((record) => record.date === reportDate);
+  const recordByEmployee = new Map(dayRecords.map((record) => [record.employeeId, record]));
+  const loggedInToday = dayRecords.filter((record) => record.loginTime).length;
+  const loggedOutToday = dayRecords.filter((record) => record.logoutTime).length;
+  const currentlyWorking = dayRecords.filter((record) => record.loginTime && !record.logoutTime).length;
+  const notLoggedIn = Math.max(0, employees.length - loggedInToday);
+  const completedMinutes = dayRecords.reduce((total, record) => total + (getWorkedMinutes(record) || 0), 0);
+  const coverage = (count) => employees.length ? `${Math.round(count / employees.length * 100)}% of employees` : '0% of employees';
+
+  dashboardDate.value = reportDate;
 
   document.getElementById('totalEmployees').textContent = employees.length;
-  document.getElementById('totalLocations').textContent = totalLocations;
+  document.getElementById('totalLocations').textContent = state.locations.length;
+  document.getElementById('totalDepartments').textContent = state.departments.length;
   document.getElementById('loggedInToday').textContent = loggedInToday;
   document.getElementById('loggedOutToday').textContent = loggedOutToday;
+  document.getElementById('currentlyWorking').textContent = currentlyWorking;
+  document.getElementById('notLoggedIn').textContent = notLoggedIn;
+  document.getElementById('hoursWorked').textContent = `${Math.floor(completedMinutes / 60)}h ${completedMinutes % 60}m`;
+  document.getElementById('loginCoverage').textContent = coverage(loggedInToday);
+  document.getElementById('logoutCoverage').textContent = coverage(loggedOutToday);
 
-  const summary = state.locations.map((location) => [
-    location.name,
-    employees.filter((employee) => employee.location === location.name).length
-  ]);
+  document.getElementById('locationSummary').innerHTML = state.locations.length
+    ? state.locations.map((location) => {
+      const locationEmployees = employees.filter((employee) => employee.location === location.name);
+      const checkedIn = locationEmployees.filter((employee) => recordByEmployee.get(employee.id)?.loginTime).length;
+      const checkedOut = locationEmployees.filter((employee) => recordByEmployee.get(employee.id)?.logoutTime).length;
+      return `
+        <tr>
+          <td>${escapeHtml(location.name)}</td>
+          <td>${locationEmployees.length}</td>
+          <td>${checkedIn}</td>
+          <td>${checkedOut}</td>
+        </tr>
+      `;
+    }).join('')
+    : '<tr><td colspan="4" class="empty-state">No locations configured.</td></tr>';
 
-  const container = document.getElementById('locationSummary');
-  container.innerHTML = summary.length
-    ? summary.map(([location, count]) => `
-      <div class="location-item">
-        <strong>${escapeHtml(location)}</strong>
-        <span>${count} employees</span>
-      </div>
-    `).join('')
-    : '<div class="empty-state">No employee data available yet.</div>';
+  document.getElementById('departmentSummary').innerHTML = state.departments.length
+    ? state.departments.map((department) => {
+      const departmentEmployees = employees.filter((employee) => employee.department === department.name);
+      const checkedIn = departmentEmployees.filter((employee) => recordByEmployee.get(employee.id)?.loginTime).length;
+      return `
+        <tr>
+          <td>${escapeHtml(department.name)}</td>
+          <td>${departmentEmployees.length}</td>
+          <td>${checkedIn}</td>
+        </tr>
+      `;
+    }).join('')
+    : '<tr><td colspan="3" class="empty-state">No departments configured.</td></tr>';
+
+  document.getElementById('dashboardAttendanceCaption').textContent = formatDisplayDate(reportDate);
+  document.getElementById('dashboardAttendanceBody').innerHTML = employees.length
+    ? employees.map((employee) => {
+      const record = recordByEmployee.get(employee.id);
+      const status = !record?.loginTime
+        ? ['Not logged in', 'status-absent']
+        : record.logoutTime
+          ? ['Logged out', 'status-complete']
+          : ['Working', 'status-working'];
+      return `
+        <tr>
+          <td>${escapeHtml(employee.name)}</td>
+          <td>${escapeHtml(employee.employeeId)}</td>
+          <td>${escapeHtml(employee.department)}</td>
+          <td>${escapeHtml(employee.location)}</td>
+          <td>${record?.loginTime || '-'}</td>
+          <td>${record?.logoutTime || '-'}</td>
+          <td>${record ? calculateWorkedDuration(record) : '-'}</td>
+          <td><span class="attendance-status ${status[1]}">${status[0]}</span></td>
+        </tr>
+      `;
+    }).join('')
+    : '<tr><td colspan="8" class="empty-state">No employees have been added.</td></tr>';
 }
 
 function renderLocationFilters() {
@@ -702,12 +760,29 @@ function calculateWorkedDuration(record) {
   if (!record.loginTime) return '<span class="pending-time">Not started</span>';
   if (!record.logoutTime) return '<span class="pending-time">In progress</span>';
 
+  const minutes = getWorkedMinutes(record);
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
+function getWorkedMinutes(record) {
+  if (!record.loginTime || !record.logoutTime) return 0;
+
   const [loginHour, loginMinute] = record.loginTime.split(':').map(Number);
   const [logoutHour, logoutMinute] = record.logoutTime.split(':').map(Number);
   let minutes = logoutHour * 60 + logoutMinute - (loginHour * 60 + loginMinute);
   if (minutes < 0) minutes += 24 * 60;
 
-  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+  return minutes;
+}
+
+function formatDisplayDate(date) {
+  if (!date) return '';
+  return new Date(`${date}T12:00:00`).toLocaleDateString('en', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric'
+  });
 }
 
 function getEmployeeById(employeeId) {

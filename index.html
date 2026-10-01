@@ -33,7 +33,11 @@
           <div class="topbar">
             <div>
               <p class="eyebrow">Overview</p>
-              <h2>Workforce attendance dashboard</h2>
+              <h2>Daily workforce overview</h2>
+            </div>
+            <div class="dashboard-date-control">
+              <label for="dashboardDate">Report date</label>
+              <input id="dashboardDate" type="date" />
             </div>
           </div>
 
@@ -41,26 +45,106 @@
             <div class="summary-card purple">
               <span>Total Employees</span>
               <strong id="totalEmployees">0</strong>
+              <small>In workforce</small>
             </div>
             <div class="summary-card blue">
-              <span>Active Locations</span>
-              <strong id="totalLocations">0</strong>
+              <span>Logged In</span>
+              <strong id="loggedInToday">0</strong>
+              <small id="loginCoverage">0% of employees</small>
             </div>
             <div class="summary-card green">
-              <span>Logged In Today</span>
-              <strong id="loggedInToday">0</strong>
+              <span>Currently Working</span>
+              <strong id="currentlyWorking">0</strong>
+              <small>Login saved, no logout yet</small>
             </div>
             <div class="summary-card orange">
-              <span>Logged Out Today</span>
+              <span>Logged Out</span>
               <strong id="loggedOutToday">0</strong>
+              <small id="logoutCoverage">0% of employees</small>
+            </div>
+            <div class="summary-card blue">
+              <span>Not Logged In</span>
+              <strong id="notLoggedIn">0</strong>
+              <small>For selected date</small>
+            </div>
+            <div class="summary-card green">
+              <span>Hours Worked</span>
+              <strong id="hoursWorked">0h</strong>
+              <small>Completed shifts</small>
+            </div>
+            <div class="summary-card orange">
+              <span>Locations</span>
+              <strong id="totalLocations">0</strong>
+              <small>Configured</small>
+            </div>
+            <div class="summary-card purple">
+              <span>Departments</span>
+              <strong id="totalDepartments">0</strong>
+              <small>Configured</small>
             </div>
           </div>
 
-          <div class="card">
-            <div class="card-header">
-              <h3>Attendance by location</h3>
+          <div class="dashboard-grid">
+            <div class="card dashboard-table-card">
+              <div class="card-header">
+                <h3>Attendance by location</h3>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Location</th>
+                      <th>Employees</th>
+                      <th>In</th>
+                      <th>Out</th>
+                    </tr>
+                  </thead>
+                  <tbody id="locationSummary"></tbody>
+                </table>
+              </div>
             </div>
-            <div id="locationSummary" class="location-summary"></div>
+
+            <div class="card dashboard-table-card">
+              <div class="card-header">
+                <h3>Employees by department</h3>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Department</th>
+                      <th>Employees</th>
+                      <th>Logged In</th>
+                    </tr>
+                  </thead>
+                  <tbody id="departmentSummary"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="card table-card dashboard-attendance-card">
+            <div class="card-header row-between">
+              <h3>Daily employee attendance</h3>
+              <span id="dashboardAttendanceCaption" class="table-caption"></span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Employee</th>
+                    <th>Employee ID</th>
+                    <th>Department</th>
+                    <th>Location</th>
+                    <th>Login</th>
+                    <th>Logout</th>
+                    <th>Worked</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="dashboardAttendanceBody"></tbody>
+              </table>
+            </div>
           </div>
         </section>
 

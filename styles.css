@@ -182,10 +182,76 @@ h3 {
   font-size: 2rem;
 }
 
+.summary-card small {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
 .summary-card.purple strong { color: var(--purple); }
 .summary-card.blue strong { color: var(--blue); }
 .summary-card.green strong { color: var(--green); }
 .summary-card.orange strong { color: var(--orange); }
+
+.dashboard-date-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.dashboard-date-control input {
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  font: inherit;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 18px;
+}
+
+.dashboard-table-card {
+  min-width: 0;
+}
+
+.dashboard-attendance-card {
+  margin-top: 0;
+}
+
+.table-caption {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.attendance-status {
+  display: inline-block;
+  padding: 5px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.status-absent {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.status-working {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.status-complete {
+  background: #dbeafe;
+  color: #1e40af;
+}
 
 .card {
   background: var(--panel);
@@ -495,6 +561,10 @@ tbody tr:hover {
     gap: 6px;
     overflow-x: auto;
   }
+
+  .dashboard-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 @media (max-width: 600px) {
@@ -535,6 +605,17 @@ tbody tr:hover {
 
   .topbar {
     margin-bottom: 18px;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .dashboard-date-control {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .dashboard-date-control input {
+    width: min(62%, 220px);
   }
 
   h2 {
@@ -553,6 +634,11 @@ tbody tr:hover {
 
   .summary-card strong {
     font-size: 1.7rem;
+  }
+
+  .summary-card small {
+    min-height: 2em;
+    font-size: 0.74rem;
   }
 
   .card {
