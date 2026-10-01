@@ -4,9 +4,10 @@ This project is a simple attendance website for capturing employee login and log
 
 ## Features
 - Employee database management
-- Location-based filtering
-- Daily attendance capture by date
+- Location and department management
+- Separate login and logout capture by date
 - Calendar view for attendance tracking
+- Employee records including Father Name
 - Supabase database storage for employees and attendance
 
 ## Local development
@@ -25,7 +26,7 @@ A static server such as `python -m http.server` can display the page, but it can
 1. Create a new Supabase project.
 2. Open the SQL editor in Supabase.
 3. For a new project, paste and run `supabase-schema.sql`.
-4. For an existing project, run `supabase-location-migration.sql` to create the locations table, backfill current employee locations, and link employees to locations. Do not rerun the original schema just for this update.
+4. For an existing project, run `supabase-workforce-migration.sql`. It creates department and split attendance tables, adds Father Name, backfills existing departments/locations, and copies historical login/logout times. Do not rerun the original schema for an existing project.
 5. Go to Settings > API and copy the project URL and anon/public key.
 6. In Vercel, open the project and go to Settings > Environment Variables.
 7. Add these variables:
@@ -39,5 +40,7 @@ A static server such as `python -m http.server` can display the page, but it can
 - The app reads the live config from Vercel environment variables through the `/api/config` endpoint.
 - Supabase is required to load and save employee and attendance data. If the database is unavailable, the app shows a status message and disables saving.
 - The app does not create sample employees. Add real employees through the Employees form and they will be saved to Supabase.
-- Add locations in the Locations tab before assigning employees to them.
+- Add locations and departments in their respective tabs before adding employees.
+- Record login during the morning and logout later; each action is saved independently and appears together in the daily report.
+- Worked time is calculated as logout minus login; break time is not deducted automatically.
 - The app is designed to be expanded later with more modules such as approvals, reports, and branch filters.

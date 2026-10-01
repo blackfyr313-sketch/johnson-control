@@ -21,6 +21,7 @@
           <button class="nav-btn active" data-section="dashboard">Dashboard</button>
           <button class="nav-btn" data-section="employees">Employees</button>
           <button class="nav-btn" data-section="locations">Locations</button>
+          <button class="nav-btn" data-section="departments">Departments</button>
           <button class="nav-btn" data-section="attendance">Attendance</button>
         </nav>
       </aside>
@@ -82,13 +83,20 @@
               </div>
 
               <div class="field">
+                <label for="fatherName">Father name</label>
+                <input id="fatherName" name="fatherName" type="text" maxlength="150" />
+              </div>
+
+              <div class="field">
                 <label for="employeeId">Employee ID</label>
                 <input id="employeeId" name="employeeId" type="text" required />
               </div>
 
               <div class="field">
                 <label for="department">Department</label>
-                <input id="department" name="department" type="text" required />
+                <select id="department" name="department" required>
+                  <option value="">Select department</option>
+                </select>
               </div>
 
               <div class="field">
@@ -130,6 +138,7 @@
                 <thead>
                   <tr>
                     <th>Name</th>
+                    <th>Father Name</th>
                     <th>Employee ID</th>
                     <th>Department</th>
                     <th>Location</th>
@@ -187,6 +196,49 @@
           </div>
         </section>
 
+        <section id="departments" class="panel">
+          <div class="topbar">
+            <div>
+              <p class="eyebrow">Database</p>
+              <h2>Department management</h2>
+            </div>
+          </div>
+
+          <div class="card form-card">
+            <div class="card-header">
+              <h3>Add department</h3>
+            </div>
+            <form id="departmentForm" class="grid-form">
+              <div class="field">
+                <label for="departmentName">Department name</label>
+                <input id="departmentName" name="departmentName" type="text" maxlength="100" required />
+              </div>
+              <div class="form-actions">
+                <button type="submit" class="primary-btn">Save department</button>
+                <button type="reset" class="secondary-btn">Clear</button>
+              </div>
+            </form>
+          </div>
+
+          <div class="card table-card">
+            <div class="card-header">
+              <h3>All departments</h3>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Department</th>
+                    <th>Employees</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="departmentTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
         <section id="attendance" class="panel">
           <div class="topbar">
             <div>
@@ -208,42 +260,50 @@
           </div>
 
           <div class="card attendance-card">
-            <div class="card-header row-between">
-              <h3>Capture attendance</h3>
-              <div class="filters">
+            <div class="card-header">
+              <h3>Choose employee and date</h3>
+            </div>
+            <div class="grid-form attendance-selectors">
+              <div class="field compact">
+                <label for="attendanceDate">Date</label>
+                <input id="attendanceDate" type="date" required />
+              </div>
+              <div class="field compact">
                 <label for="attendanceLocationSelect">Location</label>
                 <select id="attendanceLocationSelect">
                   <option value="">Select location</option>
                 </select>
               </div>
-            </div>
-
-            <form id="attendanceForm" class="grid-form">
-              <div class="field compact">
-                <label for="attendanceDate">Date</label>
-                <input id="attendanceDate" type="date" required />
-              </div>
-
               <div class="field compact">
                 <label for="attendanceEmployee">Employee</label>
                 <select id="attendanceEmployee" required>
                   <option value="">Select employee</option>
                 </select>
               </div>
+            </div>
+          </div>
 
-              <div class="field compact">
+          <div class="attendance-actions">
+            <form id="loginForm" class="card event-form login-event">
+              <div class="card-header">
+                <h3>Record morning login</h3>
+              </div>
+              <div class="field">
                 <label for="loginTime">Login time</label>
                 <input id="loginTime" type="time" required />
               </div>
+              <button type="submit" class="primary-btn">Save login</button>
+            </form>
 
-              <div class="field compact">
+            <form id="logoutForm" class="card event-form logout-event">
+              <div class="card-header">
+                <h3>Record evening logout</h3>
+              </div>
+              <div class="field">
                 <label for="logoutTime">Logout time</label>
                 <input id="logoutTime" type="time" required />
               </div>
-
-              <div class="form-actions span-2">
-                <button type="submit" class="primary-btn">Save attendance</button>
-              </div>
+              <button type="submit" class="primary-btn">Save logout</button>
             </form>
           </div>
 
@@ -256,10 +316,13 @@
                 <thead>
                   <tr>
                     <th>Employee</th>
+                    <th>Father Name</th>
+                    <th>Department</th>
                     <th>Location</th>
                     <th>Date</th>
                     <th>Login</th>
                     <th>Logout</th>
+                    <th>Worked</th>
                     <th>Action</th>
                   </tr>
                 </thead>
@@ -273,6 +336,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="config.js"></script>
-    <script src="app.js?v=2"></script>
+    <script src="app.js?v=3"></script>
   </body>
 </html>

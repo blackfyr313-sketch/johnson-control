@@ -1,6 +1,8 @@
 let supabaseClient = null;
 let databaseReady = false;
 let locationsReady = false;
+let departmentsReady = false;
+let splitAttendanceReady = false;
 
 const state = {
   currentMonth: new Date().getMonth(),
@@ -8,18 +10,23 @@ const state = {
   selectedDate: formatDateISO(new Date()),
   employees: [],
   locations: [],
+  departments: [],
   attendance: []
 };
 
 const employeeLocationFilter = document.getElementById('employeeLocationFilter');
 const employeeLocationSelect = document.getElementById('location');
+const employeeDepartmentSelect = document.getElementById('department');
 const attendanceLocationSelect = document.getElementById('attendanceLocationSelect');
 const employeeTableBody = document.getElementById('employeeTableBody');
 const locationTableBody = document.getElementById('locationTableBody');
+const departmentTableBody = document.getElementById('departmentTableBody');
 const attendanceTableBody = document.getElementById('attendanceTableBody');
 const employeeForm = document.getElementById('employeeForm');
 const locationForm = document.getElementById('locationForm');
-const attendanceForm = document.getElementById('attendanceForm');
+const departmentForm = document.getElementById('departmentForm');
+const loginForm = document.getElementById('loginForm');
+const logoutForm = document.getElementById('logoutForm');
 const attendanceEmployee = document.getElementById('attendanceEmployee');
 const attendanceDate = document.getElementById('attendanceDate');
 const calendar = document.getElementById('calendar');
@@ -35,12 +42,16 @@ async function init() {
     const loadResult = await loadSupabaseData();
     databaseReady = loadResult.connected;
     locationsReady = loadResult.locationsReady;
+    departmentsReady = loadResult.departmentsReady;
+    splitAttendanceReady = loadResult.splitAttendanceReady;
     if (!databaseReady) {
       setDatabaseStatus('Could not load employee or attendance data. Check the Supabase tables and policies.', 'error');
-    } else if (!locationsReady) {
-      setDatabaseStatus('Connected to Supabase. Run supabase-location-migration.sql to enable location management.', 'warning');
     } else {
-      setDatabaseStatus('Connected to Supabase.', 'connected');
+      const migrationNeeded = !locationsReady || !departmentsReady || !splitAttendanceReady;
+      setDatabaseStatus(
+        migrationNeeded ? 'Connected to Supabase. Run supabase-workforce-migration.sql to enable all features.' : 'Connected to Supabase.',
+        migrationNeeded ? 'warning' : 'connected'
+      );
     }
   } else {
     state.employees = [];
@@ -70,6 +81,12 @@ function setDatabaseStatus(message, status) {
   databaseStatus.className = `database-status ${status}`;
 }
 
+function setAttendanceFormAvailability() {
+  const canRecord = databaseReady && splitAttendanceReady && Boolean(attendanceEmployee.value);
+  loginForm.querySelector('[type="submit"]').disabled = !canRecord;
+  logoutForm.querySelector('[type="submit"]').disabled = !canRecord;
+}
+
 function bindEvents() {
   document.querySelectorAll('.nav-btn').forEach((button) => {
     button.addEventListener('click', () => {
@@ -83,14 +100,15 @@ function bindEvents() {
 
   employeeForm.addEventListener('submit', async (event) => {
     event.preventDefault();
-    if (!databaseReady || !state.locations.length) return;
+    if (!databaseReady || !locationsReady || !departmentsReady) return;
 
     const form = event.currentTarget;
     const newEmployee = {
       id: crypto.randomUUID(),
       name: form.employeeName.value.trim(),
+      fatherName: form.fatherName.value.trim(),
       employeeId: form.employeeId.value.trim(),
-      department: form.department.value.trim(),
+      department: form.department.value,
       location: form.location.value,
       email: form.email.value.trim(),
       phone: form.phone.value.trim()
@@ -132,6 +150,25 @@ function bindEvents() {
     locationForm.reset();
   });
 
+  departmentForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!databaseReady || !departmentsReady) return;
+
+    const name = departmentForm.departmentName.value.trim();
+    if (!name) return;
+
+    const { data, error } = await supabaseClient.from('departments').insert([{ name }]).select().single();
+    if (error) {
+      alert(error.code === '23505' ? 'That department already exists.' : 'Supabase could not save this department.');
+      console.error(error);
+      return;
+    }
+
+    state.departments.push(data);
+    renderAll();
+    departmentForm.reset();
+  });
+
   employeeLocationFilter.addEventListener('change', renderEmployeesTable);
   attendanceLocationSelect.addEventListener('change', updateAttendanceEmployees);
   attendanceEmployee.addEventListener('change', updateAttendanceInputs);
@@ -140,46 +177,8 @@ function bindEvents() {
     updateAttendanceInputs();
   });
 
-  attendanceForm.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    if (!databaseReady) return;
-
-    const selectedEmployeeId = attendanceEmployee.value;
-    const date = attendanceDate.value;
-    const loginTime = document.getElementById('loginTime').value;
-    const logoutTime = document.getElementById('logoutTime').value;
-
-    if (!selectedEmployeeId || !date || !loginTime || !logoutTime) {
-      alert('Please complete all fields before saving attendance.');
-      return;
-    }
-
-    const recordIndex = state.attendance.findIndex((entry) => entry.employeeId === selectedEmployeeId && entry.date === date);
-    const attendanceEntry = {
-      id: recordIndex >= 0 ? state.attendance[recordIndex].id : crypto.randomUUID(),
-      employeeId: selectedEmployeeId,
-      date,
-      loginTime,
-      logoutTime,
-      location: getEmployeeById(selectedEmployeeId)?.location || ''
-    };
-
-    const { error } = await supabaseClient.from('attendance').upsert([toDbAttendance(attendanceEntry)], { onConflict: 'id' });
-    if (error) {
-      alert('Supabase attendance save failed. Check your table setup.');
-      console.error(error);
-      return;
-    }
-
-    const existingIndex = state.attendance.findIndex((entry) => entry.id === attendanceEntry.id);
-    if (existingIndex >= 0) {
-      state.attendance[existingIndex] = attendanceEntry;
-    } else {
-      state.attendance.push(attendanceEntry);
-    }
-
-    renderAll();
-  });
+  loginForm.addEventListener('submit', (event) => saveAttendanceEvent(event, 'login'));
+  logoutForm.addEventListener('submit', (event) => saveAttendanceEvent(event, 'logout'));
 
   document.getElementById('prevMonth').addEventListener('click', () => {
     state.currentMonth -= 1;
@@ -200,6 +199,50 @@ function bindEvents() {
   });
 }
 
+async function saveAttendanceEvent(event, eventType) {
+  event.preventDefault();
+  if (!databaseReady || !splitAttendanceReady) return;
+
+  const employeeId = attendanceEmployee.value;
+  const date = attendanceDate.value;
+  const timeInput = document.getElementById(eventType === 'login' ? 'loginTime' : 'logoutTime');
+  const time = timeInput.value;
+  if (!employeeId || !date || !time) return;
+
+  const employee = getEmployeeById(employeeId);
+  const table = eventType === 'login' ? 'attendance_logins' : 'attendance_logouts';
+  const timeColumn = eventType === 'login' ? 'login_time' : 'logout_time';
+  const row = {
+    id: crypto.randomUUID(),
+    employee_id: employeeId,
+    date,
+    [timeColumn]: time,
+    location: employee?.location || ''
+  };
+  const { data, error } = await supabaseClient
+    .from(table)
+    .upsert([row], { onConflict: 'employee_id,date' })
+    .select()
+    .single();
+
+  if (error) {
+    alert(`Could not save ${eventType}. Check the Supabase setup.`);
+    console.error(error);
+    return;
+  }
+
+  const record = getAttendanceRecord(employeeId, date);
+  if (eventType === 'login') {
+    record.loginId = data.id;
+    record.loginTime = normalizeTime(data.login_time);
+  } else {
+    record.logoutId = data.id;
+    record.logoutTime = normalizeTime(data.logout_time);
+  }
+  record.location = data.location;
+  renderAll();
+}
+
 async function loadSupabaseData() {
   const [
     { data: employeeRows, error: employeeError },
@@ -214,29 +257,61 @@ async function loadSupabaseData() {
     state.employees = [];
     state.attendance = [];
     state.locations = [];
-    return { connected: false, locationsReady: false };
+    state.departments = [];
+    return { connected: false, locationsReady: false, departmentsReady: false, splitAttendanceReady: false };
   }
 
   state.employees = (employeeRows || []).map(mapDbEmployeeToApp);
-  state.attendance = (attendanceRows || []).map(mapDbAttendanceToApp);
+  const [
+    { data: locationRows, error: locationError },
+    { data: departmentRows, error: departmentError },
+    { data: loginRows, error: loginError },
+    { data: logoutRows, error: logoutError }
+  ] = await Promise.all([
+    supabaseClient.from('locations').select('*').order('name', { ascending: true }),
+    supabaseClient.from('departments').select('*').order('name', { ascending: true }),
+    supabaseClient.from('attendance_logins').select('*').order('date', { ascending: true }),
+    supabaseClient.from('attendance_logouts').select('*').order('date', { ascending: true })
+  ]);
 
-  const { data: locationRows, error: locationError } = await supabaseClient.from('locations').select('*').order('name', { ascending: true });
   if (locationError) {
-    console.warn('Location table is unavailable. Run the supplied location migration.', locationError);
+    console.warn('Location table is unavailable. Run the workforce migration.', locationError);
     state.locations = [...new Set(state.employees.map((employee) => employee.location))].map((name) => ({ name }));
-    return { connected: true, locationsReady: false };
+  } else {
+    state.locations = locationRows || [];
   }
 
-  state.locations = locationRows || [];
-  return { connected: true, locationsReady: true };
+  if (departmentError) {
+    console.warn('Department table is unavailable. Run the workforce migration.', departmentError);
+    state.departments = [...new Set(state.employees.map((employee) => employee.department))].map((name) => ({ name }));
+  } else {
+    state.departments = departmentRows || [];
+  }
+
+  const splitAttendanceReady = !loginError && !logoutError;
+  if (splitAttendanceReady) {
+    state.attendance = mergeAttendanceEvents(loginRows || [], logoutRows || []);
+  } else {
+    console.warn('Split attendance tables are unavailable. Run the workforce migration.');
+    state.attendance = (attendanceRows || []).map(mapDbAttendanceToApp);
+  }
+
+  return {
+    connected: true,
+    locationsReady: !locationError,
+    departmentsReady: !departmentError,
+    splitAttendanceReady
+  };
 }
 
 function renderAll() {
-  employeeForm.querySelector('[type="submit"]').disabled = !databaseReady || !state.locations.length;
+  employeeForm.querySelector('[type="submit"]').disabled = !databaseReady || !locationsReady || !departmentsReady || !state.locations.length || !state.departments.length;
   locationForm.querySelector('[type="submit"]').disabled = !databaseReady || !locationsReady;
-  attendanceForm.querySelector('[type="submit"]').disabled = !databaseReady;
+  departmentForm.querySelector('[type="submit"]').disabled = !databaseReady || !departmentsReady;
+  setAttendanceFormAvailability();
   renderDashboard();
   renderLocationsTable();
+  renderDepartmentsTable();
   renderLocationFilters();
   renderEmployeesTable();
   renderCalendar();
@@ -247,7 +322,7 @@ function renderDashboard() {
   const employees = state.employees;
   const totalLocations = state.locations.length;
   const today = formatDateISO(new Date());
-  const loggedInToday = state.attendance.filter((record) => record.date === today).length;
+  const loggedInToday = state.attendance.filter((record) => record.date === today && record.loginTime).length;
   const loggedOutToday = state.attendance.filter((record) => record.date === today && record.logoutTime).length;
 
   document.getElementById('totalEmployees').textContent = employees.length;
@@ -273,13 +348,19 @@ function renderDashboard() {
 
 function renderLocationFilters() {
   const locations = state.locations.map((location) => location.name).sort();
+  const departments = state.departments.map((department) => department.name).sort();
   const selectedEmployeeLocation = employeeLocationSelect.value;
+  const selectedEmployeeDepartment = employeeDepartmentSelect.value;
   const selectedEmployeeFilter = employeeLocationFilter.value;
   const selectedAttendanceLocation = attendanceLocationSelect.value;
 
   employeeLocationSelect.innerHTML = '<option value="">Select location</option>' +
     locations.map((location) => `<option value="${escapeHtml(location)}">${escapeHtml(location)}</option>`).join('');
   employeeLocationSelect.value = locations.includes(selectedEmployeeLocation) ? selectedEmployeeLocation : '';
+
+  employeeDepartmentSelect.innerHTML = '<option value="">Select department</option>' +
+    departments.map((department) => `<option value="${escapeHtml(department)}">${escapeHtml(department)}</option>`).join('');
+  employeeDepartmentSelect.value = departments.includes(selectedEmployeeDepartment) ? selectedEmployeeDepartment : '';
 
   employeeLocationFilter.innerHTML = '<option value="all">All locations</option>' +
     locations.map((location) => `<option value="${escapeHtml(location)}">${escapeHtml(location)}</option>`).join('');
@@ -309,6 +390,44 @@ function renderLocationsTable() {
   document.querySelectorAll('[data-delete-location]').forEach((button) => {
     button.addEventListener('click', () => deleteLocation(button.dataset.deleteLocation));
   });
+}
+
+function renderDepartmentsTable() {
+  departmentTableBody.innerHTML = state.departments.length
+    ? state.departments.map((department) => {
+      const employeeCount = state.employees.filter((employee) => employee.department === department.name).length;
+      return `
+        <tr>
+          <td>${escapeHtml(department.name)}</td>
+          <td>${employeeCount}</td>
+          <td><button class="danger-btn" data-delete-department="${escapeHtml(department.name)}" ${departmentsReady ? '' : 'disabled'}>Delete</button></td>
+        </tr>
+      `;
+    }).join('')
+    : '<tr><td colspan="3" class="empty-state">No departments have been added.</td></tr>';
+
+  document.querySelectorAll('[data-delete-department]').forEach((button) => {
+    button.addEventListener('click', () => deleteDepartment(button.dataset.deleteDepartment));
+  });
+}
+
+async function deleteDepartment(name) {
+  if (!databaseReady || !departmentsReady) return;
+  if (state.employees.some((employee) => employee.department === name)) {
+    alert('This department is assigned to employees. Reassign or remove them first.');
+    return;
+  }
+
+  if (!confirm(`Delete department ${name}?`)) return;
+  const { error } = await supabaseClient.from('departments').delete().eq('name', name);
+  if (error) {
+    console.error(error);
+    alert('Supabase could not delete this department.');
+    return;
+  }
+
+  state.departments = state.departments.filter((department) => department.name !== name);
+  renderAll();
 }
 
 async function deleteLocation(name) {
@@ -342,6 +461,7 @@ function renderEmployeesTable() {
     ? filteredEmployees.map((employee) => `
       <tr>
         <td>${escapeHtml(employee.name)}</td>
+        <td>${escapeHtml(employee.fatherName || '-')}</td>
         <td>${escapeHtml(employee.employeeId)}</td>
         <td>${escapeHtml(employee.department)}</td>
         <td>${escapeHtml(employee.location)}</td>
@@ -352,7 +472,7 @@ function renderEmployeesTable() {
         </td>
       </tr>
     `).join('')
-    : '<tr><td colspan="7" class="empty-state">No employees in this location.</td></tr>';
+    : '<tr><td colspan="8" class="empty-state">No employees in this location.</td></tr>';
 
   document.querySelectorAll('[data-delete-employee]').forEach((button) => {
     button.addEventListener('click', () => deleteEmployee(button.dataset.deleteEmployee));
@@ -366,13 +486,19 @@ async function deleteEmployee(employeeId) {
   const confirmed = confirm(`Delete employee ${employee?.name || 'record'}?`);
   if (!confirmed) return;
 
-  const [{ error: attendanceError }, { error: employeeError }] = await Promise.all([
-    supabaseClient.from('attendance').delete().eq('employee_id', employeeId),
-    supabaseClient.from('employees').delete().eq('id', employeeId)
-  ]);
+  const deletionRequests = [supabaseClient.from('attendance').delete().eq('employee_id', employeeId)];
+  if (splitAttendanceReady) {
+    deletionRequests.push(
+      supabaseClient.from('attendance_logins').delete().eq('employee_id', employeeId),
+      supabaseClient.from('attendance_logouts').delete().eq('employee_id', employeeId)
+    );
+  }
+  deletionRequests.push(supabaseClient.from('employees').delete().eq('id', employeeId));
+  const deletionResults = await Promise.all(deletionRequests);
+  const deletionError = deletionResults.find((result) => result.error)?.error;
 
-  if (attendanceError || employeeError) {
-    console.error(attendanceError || employeeError);
+  if (deletionError) {
+    console.error(deletionError);
     alert('Deletion failed in Supabase.');
     return;
   }
@@ -385,13 +511,11 @@ async function deleteEmployee(employeeId) {
 function updateAttendanceEmployees() {
   const location = attendanceLocationSelect.value;
   const employeesInLocation = state.employees.filter((employee) => !location || employee.location === location);
+  const selectedEmployeeId = attendanceEmployee.value;
   attendanceEmployee.innerHTML = '<option value="">Select employee</option>' +
     employeesInLocation.map((employee) => `<option value="${escapeHtml(employee.id)}">${escapeHtml(employee.name)} (${escapeHtml(employee.employeeId)})</option>`).join('');
 
-  const selected = attendanceEmployee.dataset.employeeId;
-  if (selected) {
-    attendanceEmployee.value = selected;
-  }
+  attendanceEmployee.value = employeesInLocation.some((employee) => employee.id === selectedEmployeeId) ? selectedEmployeeId : '';
 
   attendanceDate.value = state.selectedDate;
   updateAttendanceInputs();
@@ -404,19 +528,15 @@ function updateAttendanceInputs() {
   const employeeId = attendanceEmployee.value;
   const record = state.attendance.find((entry) => entry.date === date && entry.employeeId === employeeId);
 
-  if (record) {
-    document.getElementById('loginTime').value = record.loginTime;
-    document.getElementById('logoutTime').value = record.logoutTime;
-  } else {
-    document.getElementById('loginTime').value = '';
-    document.getElementById('logoutTime').value = '';
-  }
+  document.getElementById('loginTime').value = record?.loginTime || '';
+  document.getElementById('logoutTime').value = record?.logoutTime || '';
 
   if (selectedLocation && attendanceEmployee.options.length === 1) {
     attendanceEmployee.setAttribute('disabled', 'disabled');
   } else {
     attendanceEmployee.removeAttribute('disabled');
   }
+  setAttendanceFormAvailability();
 }
 
 function renderCalendar() {
@@ -480,10 +600,12 @@ function renderCalendar() {
 
 function renderAttendanceTable() {
   const selectedDate = state.selectedDate;
-  const records = state.attendance.filter((entry) => entry.date === selectedDate).sort((a, b) => a.employeeId.localeCompare(b.employeeId));
+  const records = state.attendance
+    .filter((entry) => entry.date === selectedDate)
+    .sort((a, b) => (getEmployeeById(a.employeeId)?.name || '').localeCompare(getEmployeeById(b.employeeId)?.name || ''));
 
   if (!records.length) {
-    attendanceTableBody.innerHTML = '<tr><td colspan="6" class="empty-state">No attendance recorded for this date.</td></tr>';
+    attendanceTableBody.innerHTML = '<tr><td colspan="9" class="empty-state">No attendance recorded for this date.</td></tr>';
     return;
   }
 
@@ -492,34 +614,100 @@ function renderAttendanceTable() {
     return `
       <tr>
         <td>${escapeHtml(employee ? employee.name : 'Unknown Employee')}</td>
+        <td>${escapeHtml(employee ? employee.fatherName || '-' : '-')}</td>
+        <td>${escapeHtml(employee ? employee.department : '-')}</td>
         <td>${escapeHtml(employee ? employee.location : '-')}</td>
         <td>${record.date}</td>
-        <td>${record.loginTime}</td>
-        <td>${record.logoutTime}</td>
+        <td>${record.loginTime || '<span class="pending-time">Not recorded</span>'}</td>
+        <td>${record.logoutTime || '<span class="pending-time">Not recorded</span>'}</td>
+        <td>${calculateWorkedDuration(record)}</td>
         <td>
-          <button class="danger-btn" data-delete-attendance="${record.id}">Delete</button>
+          <button class="danger-btn" data-delete-attendance="${escapeHtml(record.employeeId)}" data-attendance-date="${escapeHtml(record.date)}">Delete</button>
         </td>
       </tr>
     `;
   }).join('');
 
   document.querySelectorAll('[data-delete-attendance]').forEach((button) => {
-    button.addEventListener('click', () => deleteAttendance(button.dataset.deleteAttendance));
+    button.addEventListener('click', () => deleteAttendance(button.dataset.deleteAttendance, button.dataset.attendanceDate));
   });
 }
 
-async function deleteAttendance(attendanceId) {
+async function deleteAttendance(employeeId, date) {
   if (!databaseReady) return;
+  if (!confirm('Delete this employee attendance for the selected date?')) return;
 
-  const { error } = await supabaseClient.from('attendance').delete().eq('id', attendanceId);
-  if (error) {
-    console.error(error);
-    alert('Supabase attendance deletion failed.');
-    return;
+  if (splitAttendanceReady) {
+    const [{ error: loginError }, { error: logoutError }] = await Promise.all([
+      supabaseClient.from('attendance_logins').delete().eq('employee_id', employeeId).eq('date', date),
+      supabaseClient.from('attendance_logouts').delete().eq('employee_id', employeeId).eq('date', date)
+    ]);
+    if (loginError || logoutError) {
+      console.error(loginError || logoutError);
+      alert('Supabase attendance deletion failed.');
+      return;
+    }
+  } else {
+    const { error } = await supabaseClient.from('attendance').delete().eq('employee_id', employeeId).eq('date', date);
+    if (error) {
+      console.error(error);
+      alert('Supabase attendance deletion failed.');
+      return;
+    }
   }
 
-  state.attendance = state.attendance.filter((entry) => entry.id !== attendanceId);
+  state.attendance = state.attendance.filter((entry) => !(entry.employeeId === employeeId && entry.date === date));
   renderAll();
+}
+
+function getAttendanceRecord(employeeId, date) {
+  let record = state.attendance.find((entry) => entry.employeeId === employeeId && entry.date === date);
+  if (!record) {
+    record = { employeeId, date, loginTime: '', logoutTime: '', loginId: null, logoutId: null, location: '' };
+    state.attendance.push(record);
+  }
+  return record;
+}
+
+function mergeAttendanceEvents(loginRows, logoutRows) {
+  const records = new Map();
+  loginRows.forEach((row) => {
+    const record = getOrCreateAttendanceRecord(records, row.employee_id, row.date);
+    record.loginId = row.id;
+    record.loginTime = normalizeTime(row.login_time);
+    record.location = row.location || record.location;
+  });
+  logoutRows.forEach((row) => {
+    const record = getOrCreateAttendanceRecord(records, row.employee_id, row.date);
+    record.logoutId = row.id;
+    record.logoutTime = normalizeTime(row.logout_time);
+    record.location = row.location || record.location;
+  });
+  return [...records.values()];
+}
+
+function getOrCreateAttendanceRecord(records, employeeId, date) {
+  const key = `${employeeId}:${date}`;
+  if (!records.has(key)) {
+    records.set(key, { employeeId, date, loginTime: '', logoutTime: '', loginId: null, logoutId: null, location: '' });
+  }
+  return records.get(key);
+}
+
+function normalizeTime(value) {
+  return value ? String(value).slice(0, 5) : '';
+}
+
+function calculateWorkedDuration(record) {
+  if (!record.loginTime) return '<span class="pending-time">Not started</span>';
+  if (!record.logoutTime) return '<span class="pending-time">In progress</span>';
+
+  const [loginHour, loginMinute] = record.loginTime.split(':').map(Number);
+  const [logoutHour, logoutMinute] = record.logoutTime.split(':').map(Number);
+  let minutes = logoutHour * 60 + logoutMinute - (loginHour * 60 + loginMinute);
+  if (minutes < 0) minutes += 24 * 60;
+
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
 function getEmployeeById(employeeId) {
@@ -540,6 +728,7 @@ function mapDbEmployeeToApp(row) {
   return {
     id: row.id,
     name: row.name,
+    fatherName: row.father_name || row.fatherName || '',
     employeeId: row.employee_id || row.employeeId,
     department: row.department,
     location: row.location,
@@ -550,12 +739,13 @@ function mapDbEmployeeToApp(row) {
 
 function mapDbAttendanceToApp(row) {
   return {
-    id: row.id,
     employeeId: row.employee_id || row.employeeId,
     date: row.date,
-    loginTime: row.login_time || row.loginTime,
-    logoutTime: row.logout_time || row.logoutTime,
-    location: row.location || ''
+    loginTime: normalizeTime(row.login_time || row.loginTime),
+    logoutTime: normalizeTime(row.logout_time || row.logoutTime),
+    location: row.location || '',
+    loginId: null,
+    logoutId: null
   };
 }
 
@@ -563,23 +753,12 @@ function toDbEmployee(employee) {
   return {
     id: employee.id,
     name: employee.name,
+    father_name: employee.fatherName || '',
     employee_id: employee.employeeId,
     department: employee.department,
     location: employee.location,
     email: employee.email || '',
     phone: employee.phone || '',
-    created_at: new Date().toISOString()
-  };
-}
-
-function toDbAttendance(record) {
-  return {
-    id: record.id,
-    employee_id: record.employeeId,
-    date: record.date,
-    login_time: record.loginTime,
-    logout_time: record.logoutTime,
-    location: record.location || '',
     created_at: new Date().toISOString()
   };
 }
