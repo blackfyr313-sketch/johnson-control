@@ -58,6 +58,7 @@
                   <option value="all">All employees</option>
                 </select>
               </div>
+              <button id="exportMonthlyCsv" type="button" class="secondary-btn export-report-btn">Export monthly CSV</button>
             </div>
           </div>
 
@@ -369,7 +370,7 @@
             </div>
             <div class="grid-form attendance-selectors">
               <div class="field compact">
-                <label for="attendanceDate">Date</label>
+                <label for="attendanceDate">Login date / shift start</label>
                 <input id="attendanceDate" type="date" required />
               </div>
               <div class="field compact">
@@ -404,9 +405,14 @@
                 <h3>Record evening logout</h3>
               </div>
               <div class="field">
+                <label for="logoutDate">Logout date</label>
+                <input id="logoutDate" type="date" required />
+              </div>
+              <div class="field">
                 <label for="logoutTime">Logout time</label>
                 <input id="logoutTime" type="time" required />
               </div>
+              <p id="openShiftStatus" class="open-shift-status" aria-live="polite"></p>
               <button type="submit" class="primary-btn">Save logout</button>
             </form>
           </div>
@@ -423,7 +429,8 @@
                     <th>Father Name</th>
                     <th>Department</th>
                     <th>Location</th>
-                    <th>Date</th>
+                    <th>Login Date</th>
+                    <th>Logout Date</th>
                     <th>Login</th>
                     <th>Logout</th>
                     <th>Worked</th>
@@ -440,6 +447,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="config.js"></script>
-    <script src="app.js?v=5"></script>
+    <script src="app.js?v=6"></script>
   </body>
 </html>

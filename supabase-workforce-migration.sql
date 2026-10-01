@@ -62,12 +62,40 @@ create table if not exists public.attendance_logins (
 create table if not exists public.attendance_logouts (
   id uuid primary key default gen_random_uuid(),
   employee_id uuid not null references public.employees(id) on delete cascade,
+  login_date date not null,
   date date not null,
   logout_time time not null,
   location text not null,
   created_at timestamptz not null default now(),
-  unique (employee_id, date)
+  unique (employee_id, login_date)
 );
+
+alter table public.attendance_logouts
+  add column if not exists login_date date;
+
+update public.attendance_logouts
+set login_date = date
+where login_date is null;
+
+alter table public.attendance_logouts
+  alter column login_date set not null;
+
+alter table public.attendance_logouts
+  drop constraint if exists attendance_logouts_employee_id_date_key;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'attendance_logouts_employee_id_login_date_key'
+      and conrelid = 'public.attendance_logouts'::regclass
+  ) then
+    alter table public.attendance_logouts
+      add constraint attendance_logouts_employee_id_login_date_key
+      unique (employee_id, login_date);
+  end if;
+end
+$$;
 
 insert into public.attendance_logins (employee_id, date, login_time, location, created_at)
 select employee_id, date, nullif(btrim(login_time), '')::time, location, created_at
@@ -75,11 +103,11 @@ from public.attendance
 where nullif(btrim(login_time), '') is not null
 on conflict (employee_id, date) do nothing;
 
-insert into public.attendance_logouts (employee_id, date, logout_time, location, created_at)
-select employee_id, date, nullif(btrim(logout_time), '')::time, location, created_at
+insert into public.attendance_logouts (employee_id, login_date, date, logout_time, location, created_at)
+select employee_id, date, date, nullif(btrim(logout_time), '')::time, location, created_at
 from public.attendance
 where nullif(btrim(logout_time), '') is not null
-on conflict (employee_id, date) do nothing;
+on conflict (employee_id, login_date) do nothing;
 
 alter table public.locations enable row level security;
 alter table public.departments enable row level security;

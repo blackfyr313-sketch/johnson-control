@@ -43,11 +43,12 @@ create table if not exists attendance_logins (
 create table if not exists attendance_logouts (
   id uuid primary key default gen_random_uuid(),
   employee_id uuid not null references employees(id) on delete cascade,
+  login_date date not null,
   date date not null,
   logout_time time not null,
   location text not null,
   created_at timestamptz not null default now(),
-  unique (employee_id, date)
+  unique (employee_id, login_date)
 );
 
 alter table employees enable row level security;

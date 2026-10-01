@@ -39,6 +39,7 @@ const loginForm = document.getElementById('loginForm');
 const logoutForm = document.getElementById('logoutForm');
 const attendanceEmployee = document.getElementById('attendanceEmployee');
 const attendanceDate = document.getElementById('attendanceDate');
+const logoutDate = document.getElementById('logoutDate');
 const calendar = document.getElementById('calendar');
 const calendarMonthLabel = document.getElementById('calendarMonthLabel');
 const databaseStatus = document.getElementById('databaseStatus');
@@ -96,9 +97,24 @@ function setDatabaseStatus(message, status) {
 }
 
 function setAttendanceFormAvailability() {
-  const canRecord = databaseReady && splitAttendanceReady && Boolean(attendanceEmployee.value);
+  const employeeId = attendanceEmployee.value;
+  const canRecord = databaseReady && splitAttendanceReady && Boolean(employeeId);
+  const logoutDateValue = logoutDate.value || state.selectedDate;
+  const openShift = findOpenShift(employeeId, logoutDateValue);
+  const selectedShift = state.attendance.find((record) => record.employeeId === employeeId && record.date === state.selectedDate && record.loginTime);
   loginForm.querySelector('[type="submit"]').disabled = !canRecord;
-  logoutForm.querySelector('[type="submit"]').disabled = !canRecord;
+  logoutForm.querySelector('[type="submit"]').disabled = !canRecord || (!openShift && !selectedShift);
+
+  const status = document.getElementById('openShiftStatus');
+  if (!employeeId) {
+    status.textContent = 'Select an employee to record or close a shift.';
+  } else if (openShift) {
+    status.textContent = `Open shift started ${formatDisplayDate(openShift.date)}. Logout will close this shift.`;
+  } else if (selectedShift?.logoutTime) {
+    status.textContent = `This shift was logged out on ${formatDisplayDate(selectedShift.logoutDate || selectedShift.date)}.`;
+  } else {
+    status.textContent = 'No open login exists for this employee on or before the logout date.';
+  }
 }
 
 function bindEvents() {
@@ -188,8 +204,10 @@ function bindEvents() {
   attendanceEmployee.addEventListener('change', updateAttendanceInputs);
   attendanceDate.addEventListener('change', (event) => {
     state.selectedDate = event.target.value;
+    logoutDate.value = event.target.value;
     updateAttendanceInputs();
   });
+  logoutDate.addEventListener('change', updateAttendanceInputs);
   dashboardDate.addEventListener('change', (event) => {
     state.dashboardDate = event.target.value || formatDateISO(new Date());
     renderDashboard();
@@ -209,6 +227,7 @@ function bindEvents() {
     state.dashboardEmployee = event.target.value || 'all';
     renderDashboard();
   });
+  document.getElementById('exportMonthlyCsv').addEventListener('click', exportMonthlyAttendanceCsv);
 
   loginForm.addEventListener('submit', (event) => saveAttendanceEvent(event, 'login'));
   logoutForm.addEventListener('submit', (event) => saveAttendanceEvent(event, 'logout'));
@@ -237,24 +256,33 @@ async function saveAttendanceEvent(event, eventType) {
   if (!databaseReady || !splitAttendanceReady) return;
 
   const employeeId = attendanceEmployee.value;
-  const date = attendanceDate.value;
+  const loginDate = attendanceDate.value;
+  const eventDate = eventType === 'login' ? loginDate : logoutDate.value;
   const timeInput = document.getElementById(eventType === 'login' ? 'loginTime' : 'logoutTime');
   const time = timeInput.value;
-  if (!employeeId || !date || !time) return;
+  if (!employeeId || !eventDate || !time) return;
 
   const employee = getEmployeeById(employeeId);
   const table = eventType === 'login' ? 'attendance_logins' : 'attendance_logouts';
   const timeColumn = eventType === 'login' ? 'login_time' : 'logout_time';
+  const openShift = eventType === 'logout' ? findOpenShift(employeeId, eventDate) : null;
+  if (eventType === 'logout' && !openShift) {
+    alert('No open login was found for this employee on or before the logout date. Save a login first.');
+    return;
+  }
+
   const row = {
     id: crypto.randomUUID(),
     employee_id: employeeId,
-    date,
+    date: eventDate,
     [timeColumn]: time,
     location: employee?.location || ''
   };
+  if (eventType === 'logout') row.login_date = openShift.date;
+
   const { data, error } = await supabaseClient
     .from(table)
-    .upsert([row], { onConflict: 'employee_id,date' })
+    .upsert([row], { onConflict: eventType === 'login' ? 'employee_id,date' : 'employee_id,login_date' })
     .select()
     .single();
 
@@ -264,13 +292,14 @@ async function saveAttendanceEvent(event, eventType) {
     return;
   }
 
-  const record = getAttendanceRecord(employeeId, date);
+  const record = eventType === 'login' ? getAttendanceRecord(employeeId, loginDate) : openShift;
   if (eventType === 'login') {
     record.loginId = data.id;
     record.loginTime = normalizeTime(data.login_time);
   } else {
     record.logoutId = data.id;
     record.logoutTime = normalizeTime(data.logout_time);
+    record.logoutDate = data.date;
   }
   record.location = data.location;
   renderAll();
@@ -304,7 +333,7 @@ async function loadSupabaseData() {
     supabaseClient.from('locations').select('*').order('name', { ascending: true }),
     supabaseClient.from('departments').select('*').order('name', { ascending: true }),
     supabaseClient.from('attendance_logins').select('*').order('date', { ascending: true }),
-    supabaseClient.from('attendance_logouts').select('*').order('date', { ascending: true })
+    supabaseClient.from('attendance_logouts').select('id,employee_id,login_date,date,logout_time,location,created_at').order('date', { ascending: true })
   ]);
 
   if (locationError) {
@@ -389,14 +418,26 @@ function renderDashboard() {
     ? employeesInLocation
     : employeesInLocation.filter((employee) => employee.id === selectedEmployee);
   const reportDate = state.dashboardDate;
+  const today = formatDateISO(new Date());
   const employeeIds = new Set(employees.map((employee) => employee.id));
-  const dayRecords = state.attendance.filter((record) => record.date === reportDate && employeeIds.has(record.employeeId));
-  const recordByEmployee = new Map(dayRecords.map((record) => [record.employeeId, record]));
-  const loggedInToday = dayRecords.filter((record) => record.loginTime).length;
-  const loggedOutToday = dayRecords.filter((record) => record.logoutTime).length;
+  const dayRecords = state.attendance.filter((record) => employeeIds.has(record.employeeId) &&
+    record.date <= reportDate && (record.logoutDate
+      ? record.logoutDate >= reportDate
+      : (!record.logoutTime || record.date === reportDate) && reportDate <= today)
+  );
+  const recordByEmployee = new Map();
+  dayRecords.forEach((record) => {
+    const previous = recordByEmployee.get(record.employeeId);
+    if (!previous || record.date === reportDate || record.logoutDate === reportDate) {
+      recordByEmployee.set(record.employeeId, record);
+    }
+  });
+  const loggedInToday = dayRecords.filter((record) => record.date === reportDate && record.loginTime).length;
+  const loggedOutToday = dayRecords.filter((record) => record.logoutDate === reportDate && record.logoutTime).length;
   const currentlyWorking = dayRecords.filter((record) => record.loginTime && !record.logoutTime).length;
-  const notLoggedIn = Math.max(0, employees.length - loggedInToday);
-  const completedMinutes = dayRecords.reduce((total, record) => total + (getWorkedMinutes(record) || 0), 0);
+  const notLoggedIn = Math.max(0, employees.length - new Set(dayRecords.filter((record) => record.loginTime).map((record) => record.employeeId)).size);
+  const completedMinutes = dayRecords.reduce((total, record) =>
+    total + ((record.logoutDate || record.date) === reportDate && record.logoutTime ? getWorkedMinutes(record) : 0), 0);
   const coverage = (count) => employees.length ? `${Math.round(count / employees.length * 100)}% of employees` : '0% of employees';
 
   dashboardDate.value = reportDate;
@@ -443,9 +484,10 @@ function renderDashboard() {
     }).join('')
     : '<tr><td colspan="3" class="empty-state">No departments configured.</td></tr>';
 
-  document.getElementById('dashboardAttendanceCaption').textContent = selectedDepartmentName === 'all'
+  const reportCaption = selectedDepartmentName === 'all'
     ? formatDisplayDate(reportDate)
     : `${formatDisplayDate(reportDate)} · ${selectedDepartmentName}`;
+  document.getElementById('dashboardAttendanceCaption').textContent = reportCaption;
   document.getElementById('dashboardAttendanceBody').innerHTML = employees.length
     ? employees.map((employee) => {
       const record = recordByEmployee.get(employee.id);
@@ -460,14 +502,54 @@ function renderDashboard() {
           <td>${escapeHtml(employee.employeeId)}</td>
           <td>${escapeHtml(employee.department)}</td>
           <td>${escapeHtml(employee.location)}</td>
-          <td>${record?.loginTime || '-'}</td>
-          <td>${record?.logoutTime || '-'}</td>
+          <td>${record?.loginTime ? `${record.date} ${record.loginTime}` : '-'}</td>
+          <td>${record?.logoutTime ? `${record.logoutDate || record.date} ${record.logoutTime}` : '-'}</td>
           <td>${record ? calculateWorkedDuration(record) : '-'}</td>
           <td><span class="attendance-status ${status[1]}">${status[0]}</span></td>
         </tr>
       `;
     }).join('')
     : '<tr><td colspan="8" class="empty-state">No employees have been added.</td></tr>';
+}
+
+function exportMonthlyAttendanceCsv() {
+  const csv = buildMonthlyAttendanceCsv(state.dashboardDate, state.employees, state.attendance, formatDateISO(new Date()));
+  const [year, month] = state.dashboardDate.split('-').map(Number);
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `attendance-report-${year}-${String(month).padStart(2, '0')}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function buildMonthlyAttendanceCsv(reportDate, employees, attendance, today) {
+  const [year, month] = reportDate.split('-').map(Number);
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const dates = Array.from({ length: daysInMonth }, (_, index) =>
+    formatDateISO(new Date(year, month - 1, index + 1))
+  );
+  const csvCell = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+  const header = ['Employee ID', 'Employee', 'Father Name', 'Department', 'Location', ...dates];
+  const scopedEmployees = employees.filter((employee) =>
+    (state.dashboardDepartment === 'all' || employee.department === state.dashboardDepartment) &&
+    (state.dashboardLocation === 'all' || employee.location === state.dashboardLocation) &&
+    (state.dashboardEmployee === 'all' || employee.id === state.dashboardEmployee)
+  );
+  const rows = scopedEmployees.map((employee) => {
+    const dailyMarks = dates.map((date) => {
+      const present = attendance.some((record) =>
+        record.employeeId === employee.id && record.date <= date &&
+        (record.logoutDate ? record.logoutDate >= date : record.date <= date && date <= today)
+      );
+      if (present) return 'P';
+      return date < today ? 'A' : '';
+    });
+    return [employee.employeeId, employee.name, employee.fatherName, employee.department, employee.location, ...dailyMarks];
+  });
+  return '\ufeff' + [header, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n');
 }
 
 function renderLocationFilters() {
@@ -797,6 +879,7 @@ function updateAttendanceInputs() {
 
   document.getElementById('loginTime').value = record?.loginTime || '';
   document.getElementById('logoutTime').value = record?.logoutTime || '';
+  logoutDate.value = record?.logoutDate || logoutDate.value || date;
 
   if (selectedLocation && attendanceEmployee.options.length === 1) {
     attendanceEmployee.setAttribute('disabled', 'disabled');
@@ -835,7 +918,7 @@ function renderCalendar() {
 
   for (let day = 1; day <= totalDays; day += 1) {
     const date = formatDateISO(new Date(state.currentYear, state.currentMonth, day));
-    const hasRecord = state.attendance.some((entry) => entry.date === date);
+    const hasRecord = state.attendance.some((entry) => entry.date === date || entry.logoutDate === date);
     const selectedClass = date === state.selectedDate ? 'selected' : '';
 
     cells.push(`<div class="day-cell ${selectedClass} ${hasRecord ? 'has-record' : ''}" data-date="${date}">
@@ -868,11 +951,11 @@ function renderCalendar() {
 function renderAttendanceTable() {
   const selectedDate = state.selectedDate;
   const records = state.attendance
-    .filter((entry) => entry.date === selectedDate)
+    .filter((entry) => entry.date === selectedDate || entry.logoutDate === selectedDate)
     .sort((a, b) => (getEmployeeById(a.employeeId)?.name || '').localeCompare(getEmployeeById(b.employeeId)?.name || ''));
 
   if (!records.length) {
-    attendanceTableBody.innerHTML = '<tr><td colspan="9" class="empty-state">No attendance recorded for this date.</td></tr>';
+    attendanceTableBody.innerHTML = '<tr><td colspan="10" class="empty-state">No attendance recorded for this date.</td></tr>';
     return;
   }
 
@@ -887,6 +970,7 @@ function renderAttendanceTable() {
         <td>${escapeHtml(employee ? employee.department : '-')}</td>
         <td>${escapeHtml(employee ? employee.location : '-')}</td>
         <td>${record.date}</td>
+        <td>${editing ? `<input class="table-input date-input" type="date" name="logoutDate" value="${escapeHtml(record.logoutDate || record.date)}" aria-label="Logout date" />` : record.logoutDate || '<span class="pending-time">Not recorded</span>'}</td>
         <td>${editing ? `<input class="table-input time-input" type="time" name="loginTime" value="${escapeHtml(record.loginTime || '')}" aria-label="Login time" />` : record.loginTime || '<span class="pending-time">Not recorded</span>'}</td>
         <td>${editing ? `<input class="table-input time-input" type="time" name="logoutTime" value="${escapeHtml(record.logoutTime || '')}" aria-label="Logout time" />` : record.logoutTime || '<span class="pending-time">Not recorded</span>'}</td>
         <td>${calculateWorkedDuration(record)}</td>
@@ -923,13 +1007,18 @@ async function updateAttendance(employeeId, date, row) {
   if (!databaseReady) return;
   const loginTime = row.querySelector('[name="loginTime"]').value;
   const logoutTime = row.querySelector('[name="logoutTime"]').value;
+  const logoutDateValue = row.querySelector('[name="logoutDate"]')?.value || date;
   let record = state.attendance.find((entry) => entry.employeeId === employeeId && entry.date === date);
   if (!record) return;
+  if (!loginTime && logoutTime) {
+    alert('A logout needs its matching login. Clear both times to remove the attendance record.');
+    return;
+  }
 
   if (splitAttendanceReady) {
     const loginResult = await updateAttendanceEvent(employeeId, date, 'login', loginTime, record);
     if (loginResult.error) return showAttendanceUpdateError(loginResult.error);
-    const logoutResult = await updateAttendanceEvent(employeeId, date, 'logout', logoutTime, record);
+    const logoutResult = await updateAttendanceEvent(employeeId, date, 'logout', logoutTime, record, logoutDateValue);
     if (logoutResult.error) {
       await reloadAttendanceAfterPartialUpdate();
       return showAttendanceUpdateError(logoutResult.error);
@@ -938,6 +1027,7 @@ async function updateAttendance(employeeId, date, row) {
     record.loginTime = loginResult.data?.login_time ? normalizeTime(loginResult.data.login_time) : '';
     record.logoutId = logoutResult.data?.id || null;
     record.logoutTime = logoutResult.data?.logout_time ? normalizeTime(logoutResult.data.logout_time) : '';
+    record.logoutDate = logoutResult.data?.date || '';
   } else {
     const request = !loginTime && !logoutTime
       ? supabaseClient.from('attendance').delete().eq('employee_id', employeeId).eq('date', date)
@@ -955,22 +1045,25 @@ async function updateAttendance(employeeId, date, row) {
   renderAll();
 }
 
-async function updateAttendanceEvent(employeeId, date, eventType, time, record) {
+async function updateAttendanceEvent(employeeId, loginDate, eventType, time, record, logoutDateValue = loginDate) {
   const isLogin = eventType === 'login';
   const table = isLogin ? 'attendance_logins' : 'attendance_logouts';
   const timeColumn = isLogin ? 'login_time' : 'logout_time';
   if (!time) {
-    const { error } = await supabaseClient.from(table).delete().eq('employee_id', employeeId).eq('date', date);
+    const { error } = await supabaseClient.from(table).delete()
+      .eq('employee_id', employeeId)
+      .eq(isLogin ? 'date' : 'login_date', loginDate);
     return { data: null, error };
   }
 
   const { data, error } = await supabaseClient.from(table).upsert([{
     id: isLogin ? record.loginId || crypto.randomUUID() : record.logoutId || crypto.randomUUID(),
     employee_id: employeeId,
-    date,
+    date: isLogin ? loginDate : logoutDateValue,
+    ...(!isLogin ? { login_date: loginDate } : {}),
     [timeColumn]: time,
     location: getEmployeeById(employeeId)?.location || record.location || ''
-  }], { onConflict: 'employee_id,date' }).select().single();
+  }], { onConflict: isLogin ? 'employee_id,date' : 'employee_id,login_date' }).select().single();
   return { data, error };
 }
 
@@ -993,7 +1086,7 @@ async function deleteAttendance(employeeId, date) {
   if (splitAttendanceReady) {
     const [{ error: loginError }, { error: logoutError }] = await Promise.all([
       supabaseClient.from('attendance_logins').delete().eq('employee_id', employeeId).eq('date', date),
-      supabaseClient.from('attendance_logouts').delete().eq('employee_id', employeeId).eq('date', date)
+      supabaseClient.from('attendance_logouts').delete().eq('employee_id', employeeId).eq('login_date', date)
     ]);
     if (loginError || logoutError) {
       console.error(loginError || logoutError);
@@ -1016,7 +1109,7 @@ async function deleteAttendance(employeeId, date) {
 function getAttendanceRecord(employeeId, date) {
   let record = state.attendance.find((entry) => entry.employeeId === employeeId && entry.date === date);
   if (!record) {
-    record = { employeeId, date, loginTime: '', logoutTime: '', loginId: null, logoutId: null, location: '' };
+    record = { employeeId, date, logoutDate: '', loginTime: '', logoutTime: '', loginId: null, logoutId: null, location: '' };
     state.attendance.push(record);
   }
   return record;
@@ -1031,9 +1124,11 @@ function mergeAttendanceEvents(loginRows, logoutRows) {
     record.location = row.location || record.location;
   });
   logoutRows.forEach((row) => {
-    const record = getOrCreateAttendanceRecord(records, row.employee_id, row.date);
+    const loginDate = row.login_date || row.date;
+    const record = getOrCreateAttendanceRecord(records, row.employee_id, loginDate);
     record.logoutId = row.id;
     record.logoutTime = normalizeTime(row.logout_time);
+    record.logoutDate = row.date;
     record.location = row.location || record.location;
   });
   return [...records.values()];
@@ -1042,13 +1137,19 @@ function mergeAttendanceEvents(loginRows, logoutRows) {
 function getOrCreateAttendanceRecord(records, employeeId, date) {
   const key = `${employeeId}:${date}`;
   if (!records.has(key)) {
-    records.set(key, { employeeId, date, loginTime: '', logoutTime: '', loginId: null, logoutId: null, location: '' });
+    records.set(key, { employeeId, date, logoutDate: '', loginTime: '', logoutTime: '', loginId: null, logoutId: null, location: '' });
   }
   return records.get(key);
 }
 
 function normalizeTime(value) {
   return value ? String(value).slice(0, 5) : '';
+}
+
+function findOpenShift(employeeId, throughDate) {
+  return state.attendance
+    .filter((record) => record.employeeId === employeeId && record.loginTime && !record.logoutTime && record.date <= throughDate)
+    .sort((left, right) => right.date.localeCompare(left.date))[0] || null;
 }
 
 function calculateWorkedDuration(record) {
@@ -1064,6 +1165,11 @@ function getWorkedMinutes(record) {
 
   const [loginHour, loginMinute] = record.loginTime.split(':').map(Number);
   const [logoutHour, logoutMinute] = record.logoutTime.split(':').map(Number);
+  if (record.logoutDate && record.logoutDate !== record.date) {
+    const start = new Date(`${record.date}T${record.loginTime}:00Z`).getTime();
+    const end = new Date(`${record.logoutDate}T${record.logoutTime}:00Z`).getTime();
+    return Math.max(0, Math.round((end - start) / 60000));
+  }
   let minutes = logoutHour * 60 + logoutMinute - (loginHour * 60 + loginMinute);
   if (minutes < 0) minutes += 24 * 60;
 

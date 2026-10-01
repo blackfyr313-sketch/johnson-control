@@ -532,6 +532,18 @@ tbody tr:hover {
   border-top: 4px solid var(--orange);
 }
 
+.open-shift-status {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.4;
+}
+
+.export-report-btn {
+  min-height: 42px;
+  white-space: nowrap;
+}
+
 .pending-time {
   color: var(--muted);
   font-style: italic;
@@ -678,6 +690,10 @@ tbody tr:hover {
   .dashboard-date-control input,
   .dashboard-date-control select {
     width: min(62%, 220px);
+  }
+
+  .export-report-btn {
+    width: 100%;
   }
 
   h2 {
