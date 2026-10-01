@@ -10,6 +10,8 @@ const state = {
   selectedDate: formatDateISO(new Date()),
   dashboardDate: formatDateISO(new Date()),
   dashboardDepartment: 'all',
+  dashboardLocation: 'all',
+  dashboardEmployee: 'all',
   employees: [],
   locations: [],
   departments: [],
@@ -42,6 +44,8 @@ const calendarMonthLabel = document.getElementById('calendarMonthLabel');
 const databaseStatus = document.getElementById('databaseStatus');
 const dashboardDate = document.getElementById('dashboardDate');
 const dashboardDepartmentFilter = document.getElementById('dashboardDepartmentFilter');
+const dashboardLocationFilter = document.getElementById('dashboardLocationFilter');
+const dashboardEmployeeFilter = document.getElementById('dashboardEmployeeFilter');
 
 async function init() {
   bindEvents();
@@ -192,6 +196,17 @@ function bindEvents() {
   });
   dashboardDepartmentFilter.addEventListener('change', (event) => {
     state.dashboardDepartment = event.target.value || 'all';
+    state.dashboardLocation = 'all';
+    state.dashboardEmployee = 'all';
+    renderDashboard();
+  });
+  dashboardLocationFilter.addEventListener('change', (event) => {
+    state.dashboardLocation = event.target.value || 'all';
+    state.dashboardEmployee = 'all';
+    renderDashboard();
+  });
+  dashboardEmployeeFilter.addEventListener('change', (event) => {
+    state.dashboardEmployee = event.target.value || 'all';
     renderDashboard();
   });
 
@@ -346,9 +361,33 @@ function renderDashboard() {
     departments.map((department) => `<option value="${escapeHtml(department)}">${escapeHtml(department)}</option>`).join('');
   dashboardDepartmentFilter.value = selectedDepartmentName;
 
-  const employees = selectedDepartmentName === 'all'
+  const employeesInDepartment = selectedDepartmentName === 'all'
     ? state.employees
     : state.employees.filter((employee) => employee.department === selectedDepartmentName);
+  const locations = [...new Set(employeesInDepartment.map((employee) => employee.location))].sort();
+  const selectedLocation = locations.includes(state.dashboardLocation) ? state.dashboardLocation : 'all';
+  state.dashboardLocation = selectedLocation;
+  dashboardLocationFilter.innerHTML = '<option value="all">All locations</option>' +
+    locations.map((location) => `<option value="${escapeHtml(location)}">${escapeHtml(location)}</option>`).join('');
+  dashboardLocationFilter.value = selectedLocation;
+
+  const employeesInLocation = selectedLocation === 'all'
+    ? employeesInDepartment
+    : employeesInDepartment.filter((employee) => employee.location === selectedLocation);
+  const selectedEmployee = employeesInLocation.some((employee) => employee.id === state.dashboardEmployee)
+    ? state.dashboardEmployee
+    : 'all';
+  state.dashboardEmployee = selectedEmployee;
+  dashboardEmployeeFilter.innerHTML = '<option value="all">All employees</option>' +
+    [...employeesInLocation]
+      .sort((left, right) => left.name.localeCompare(right.name))
+      .map((employee) => `<option value="${escapeHtml(employee.id)}">${escapeHtml(employee.name)} (${escapeHtml(employee.employeeId)})</option>`)
+      .join('');
+  dashboardEmployeeFilter.value = selectedEmployee;
+
+  const employees = selectedEmployee === 'all'
+    ? employeesInLocation
+    : employeesInLocation.filter((employee) => employee.id === selectedEmployee);
   const reportDate = state.dashboardDate;
   const employeeIds = new Set(employees.map((employee) => employee.id));
   const dayRecords = state.attendance.filter((record) => record.date === reportDate && employeeIds.has(record.employeeId));
@@ -373,8 +412,9 @@ function renderDashboard() {
   document.getElementById('loginCoverage').textContent = coverage(loggedInToday);
   document.getElementById('logoutCoverage').textContent = coverage(loggedOutToday);
 
-  document.getElementById('locationSummary').innerHTML = state.locations.length
-    ? state.locations.map((location) => {
+  document.getElementById('locationSummary').innerHTML = locations.length
+    ? locations.map((locationName) => {
+      const location = { name: locationName };
       const locationEmployees = employees.filter((employee) => employee.location === location.name);
       const checkedIn = locationEmployees.filter((employee) => recordByEmployee.get(employee.id)?.loginTime).length;
       const checkedOut = locationEmployees.filter((employee) => recordByEmployee.get(employee.id)?.logoutTime).length;
