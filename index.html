@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Attendance Portal</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-icon">A</div>
+          <div>
+            <h1>Attendance</h1>
+            <p>Workforce Portal</p>
+          </div>
+        </div>
+
+        <nav class="nav">
+          <button class="nav-btn active" data-section="dashboard">Dashboard</button>
+          <button class="nav-btn" data-section="employees">Employees</button>
+          <button class="nav-btn" data-section="attendance">Attendance</button>
+        </nav>
+      </aside>
+
+      <main class="main-content">
+        <section id="dashboard" class="panel active-panel">
+          <div class="topbar">
+            <div>
+              <p class="eyebrow">Overview</p>
+              <h2>Workforce attendance dashboard</h2>
+            </div>
+          </div>
+
+          <div class="summary-grid">
+            <div class="summary-card purple">
+              <span>Total Employees</span>
+              <strong id="totalEmployees">0</strong>
+            </div>
+            <div class="summary-card blue">
+              <span>Active Locations</span>
+              <strong id="totalLocations">0</strong>
+            </div>
+            <div class="summary-card green">
+              <span>Logged In Today</span>
+              <strong id="loggedInToday">0</strong>
+            </div>
+            <div class="summary-card orange">
+              <span>Logged Out Today</span>
+              <strong id="loggedOutToday">0</strong>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h3>Attendance by location</h3>
+            </div>
+            <div id="locationSummary" class="location-summary"></div>
+          </div>
+        </section>
+
+        <section id="employees" class="panel">
+          <div class="topbar">
+            <div>
+              <p class="eyebrow">Database</p>
+              <h2>Employee information</h2>
+            </div>
+          </div>
+
+          <div class="card form-card">
+            <div class="card-header">
+              <h3>Add employee</h3>
+            </div>
+            <form id="employeeForm" class="grid-form">
+              <div class="field">
+                <label for="employeeName">Full name</label>
+                <input id="employeeName" name="employeeName" type="text" required />
+              </div>
+
+              <div class="field">
+                <label for="employeeId">Employee ID</label>
+                <input id="employeeId" name="employeeId" type="text" required />
+              </div>
+
+              <div class="field">
+                <label for="department">Department</label>
+                <input id="department" name="department" type="text" required />
+              </div>
+
+              <div class="field">
+                <label for="location">Location</label>
+                <select id="location" name="location" required>
+                  <option value="">Select location</option>
+                  <option value="Head Office">Head Office</option>
+                  <option value="Factory A">Factory A</option>
+                  <option value="Factory B">Factory B</option>
+                  <option value="Field Team">Field Team</option>
+                  <option value="Warehouse">Warehouse</option>
+                </select>
+              </div>
+
+              <div class="field">
+                <label for="email">Email</label>
+                <input id="email" name="email" type="email" />
+              </div>
+
+              <div class="field">
+                <label for="phone">Phone</label>
+                <input id="phone" name="phone" type="tel" />
+              </div>
+
+              <div class="form-actions">
+                <button type="submit" class="primary-btn">Save employee</button>
+                <button type="reset" class="secondary-btn">Clear</button>
+              </div>
+            </form>
+          </div>
+
+          <div class="card table-card">
+            <div class="card-header row-between">
+              <h3>Employee database</h3>
+              <div class="filters">
+                <label for="employeeLocationFilter">Location</label>
+                <select id="employeeLocationFilter">
+                  <option value="all">All locations</option>
+                </select>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Employee ID</th>
+                    <th>Department</th>
+                    <th>Location</th>
+                    <th>Email</th>
+                    <th>Phone</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="employeeTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section id="attendance" class="panel">
+          <div class="topbar">
+            <div>
+              <p class="eyebrow">Records</p>
+              <h2>Login and logout tracker</h2>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header row-between">
+              <h3>Select attendance date</h3>
+              <div class="calendar-controls">
+                <button id="prevMonth" type="button" class="secondary-btn">Previous</button>
+                <strong id="calendarMonthLabel"></strong>
+                <button id="nextMonth" type="button" class="secondary-btn">Next</button>
+              </div>
+            </div>
+            <div id="calendar" class="calendar"></div>
+          </div>
+
+          <div class="card attendance-card">
+            <div class="card-header row-between">
+              <h3>Capture attendance</h3>
+              <div class="filters">
+                <label for="attendanceLocationSelect">Location</label>
+                <select id="attendanceLocationSelect">
+                  <option value="">Select location</option>
+                </select>
+              </div>
+            </div>
+
+            <form id="attendanceForm" class="grid-form">
+              <div class="field compact">
+                <label for="attendanceDate">Date</label>
+                <input id="attendanceDate" type="date" required />
+              </div>
+
+              <div class="field compact">
+                <label for="attendanceEmployee">Employee</label>
+                <select id="attendanceEmployee" required>
+                  <option value="">Select employee</option>
+                </select>
+              </div>
+
+              <div class="field compact">
+                <label for="loginTime">Login time</label>
+                <input id="loginTime" type="time" required />
+              </div>
+
+              <div class="field compact">
+                <label for="logoutTime">Logout time</label>
+                <input id="logoutTime" type="time" required />
+              </div>
+
+              <div class="form-actions span-2">
+                <button type="submit" class="primary-btn">Save attendance</button>
+              </div>
+            </form>
+          </div>
+
+          <div class="card table-card">
+            <div class="card-header">
+              <h3>Daily attendance log</h3>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Employee</th>
+                    <th>Location</th>
+                    <th>Date</th>
+                    <th>Login</th>
+                    <th>Logout</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="attendanceTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="config.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
