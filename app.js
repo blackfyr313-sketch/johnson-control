@@ -545,7 +545,8 @@ function buildMonthlyAttendanceCsv(reportDate, employees, attendance, today) {
         (record.logoutDate ? record.logoutDate >= date : record.date <= date && date <= today)
       );
       if (present) return 'P';
-      return date < today ? 'A' : '';
+      const hireDate = employee.createdAt ? employee.createdAt.slice(0, 10) : '';
+      return date < today && (!hireDate || date >= hireDate) ? 'A' : '';
     });
     return [employee.employeeId, employee.name, employee.fatherName, employee.department, employee.location, ...dailyMarks];
   });
@@ -1209,7 +1210,8 @@ function mapDbEmployeeToApp(row) {
     department: row.department,
     location: row.location,
     email: row.email || '',
-    phone: row.phone || ''
+    phone: row.phone || '',
+    createdAt: row.created_at || row.createdAt || ''
   };
 }
 
